@@ -15,7 +15,7 @@ The user coordinates an iterative technical conversation between ChatGPT and Cla
 Develop a simple root `Makefile` when implementing production code, not as part of the purely documentary baseline:
 
 - `make test`: **quick** deterministic Go unit and targeted regression tests for every ordinary cut (`go test ./...` or intentionally scoped subset).
-- `make validate`: broader conformance, full provided corpus and invariance/property checks; required for significant sequencer or bus changes, M1 gates and releases. Report exclusions/unresolved rows **separately from genuine regressions**.
+- `make validate`: broader conformance, full provided corpus and invariance/property checks; required for significant sequencer or bus changes, M1 gates and releases. Report excluded profile opcodes, unavailable corpus tests, documented exceptions and genuine regressions separately.
 - `make bench`: Go benchmarks of CPU unobserved and eventually count/trace overhead, recording conditions and actual measured throughput. No invented results.
 - `make baseline`: reproducibly package the **whole** project in a nested tarball excluding artifacts and caches, with a clear version stamp. Preserve optional `.git` as agreed; if no Git initialized, don't fabricate it.
 - Use `go test`, `go vet` and formatting (`gofmt`) appropriately. A failed test means fix before releasing the cut or disclose clearly when blocked.
@@ -30,10 +30,10 @@ Develop a simple root `Makefile` when implementing production code, not as part 
 
 ## Development sequence and quality gates
 
-1. **Now:** architecture is frozen. User/Claude completed design arbitration. Do not reopen closed points casually.
-2. **Next:** inspect available references and conduct **disposable four-template schema spike** (LDA immediate, STA abs,X, INC abs,X both crossing states, BRK), classification-aware from day one. Throw away spike code when concluding. Only schema/evidence/test lessons persist.
+1. **Now:** Architecture 0.3 is frozen. User/Claude completed design arbitration. Do not reopen closed points casually.
+2. **Next:** use selected SingleStepTests 65C02 (when available) and Dormann, filtering unsupported instructions, and conduct **disposable four-template schema spike** (LDA immediate, STA abs,X, INC abs,X both crossing states, BRK), profile-aware from day one, without an archival evidence matrix. Throw away spike code when concluding. Only schema and test lessons persist.
 3. Produce Technical Specification 0.1 after the spike has tested the phase cursor, bus ordering and microstep contract. Review with user and Claude.
 4. **M1** production CPU/bus/conformance, then **M2** machine/supervisor/logging, then **M3** profiling/tracing. Do not build M2/M3 infrastructure to distract from an unvalidated M1 engine.
 5. Later Wails/Apple IIe and reversibility work only when explicitly initiated.
 
-**Note on uploaded test ZIP:** an earlier `65x02.zip` reported a ZIP local header but no central-directory footer; treat this as a potentially truncated/corrupted download. Verify `unzip -t`, file size and source checksum / redownload before relying on its contents. Do not pretend it is a valid corpus archive.
+**Corpus availability:** SingleStepTests may be unavailable pending a working download. Validate archives before use; do not claim unavailable corpus vectors passed. Keep a deterministic local harness and record what was actually tested.

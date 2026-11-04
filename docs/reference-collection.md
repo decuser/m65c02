@@ -2,17 +2,17 @@
 
 User says the documentation and test collection is assembled. **No assumptions about archive names, integrity, or availability in the next session.** Ask for or inspect the collection present in that session before claiming a test file exists; verify ZIP/TAR integrity and identify chip variant/test revision.
 
-## Normative historical inputs
+## Apple IIe context and teaching references
 
-1. Apple, *Apple IIe Technical Reference Manual* (1985), including Appendix A and Apple comparison Table A-1. Defines Apple CPU profile and machine requirements. Source is Apple-authored material together with a *reproduced* NCR processor document: record provenance separately.
-2. NCR original 65C02 datasheet (in Apple appendix and/or independent original). Processor semantics, signal behavior, timing table and notes. Important: actual cycle sequences may not be fully documented.
+1. Apple, *Apple IIe Technical Reference Manual* (1985), including Appendix A and Apple comparison Table A-1. Provides machine requirements and contemporary CPU discussion; not an overriding cycle oracle.
+2. NCR original 65C02 datasheet (in Apple appendix and/or independent original). Optional historical reference, not a physical-chip acceptance target.
 3. Jim Sather, *Understanding the Apple IIe* (1985). Contemporary IIe hardware and timing discussion.
 4. *The Visible Computer: 6502*, Software Masters (1982). Pedagogical vocabulary and interaction inspiration only; primarily NMOS-era, not a silicon specification for Apple's CMOS variant.
 
 ## Executable and implementation evidence
 
-5. `SingleStepTests/65x02` corpus, organized and tagged by actual processor variant. Confirm whether relevant Apple/NCR sequences are directly covered. Do not treat Rockwell/WDC vectors as automatic NCR truth. Known classified disagreement should not fail a target-profile test.
-6. AppleWin source archive, for documented instruction handling and Apple machine integration. Not automatically cycle-bus-accurate.
+5. Select one `SingleStepTests/65x02` 65C02 set as the default cycle/bus oracle. Exclude Rockwell bit operations and WAI/STP; retain the selected corpus revision and short notes for deliberate deviations. Download currently unavailable; do not assert passing vectors until obtained.
+6. Dormann 65C02 functional test for complementary semantic verification; AppleWin source for implementation comparison, not automatically a cycle/bus oracle.
 
 ## Design inspiration, not code dependencies
 
@@ -26,9 +26,9 @@ User says the documentation and test collection is assembled. **No assumptions a
 ```
 references/
   apple/           # Apple IIe manual and contemporary books
-  ncr/             # NCR original/reproduced CPU docs
+  ncr/             # optional contemporary reference
   teaching/        # Visible Computer manual
-  tests/           # 65x02 test corpora
+  tests/           # selected SingleStepTests and Dormann fixtures
   implementation/  # AppleWin source
   inspiration/     # Aiki, Harpy, Nezha, V6, PDP-11
 ```
