@@ -1,0 +1,37 @@
+# Build outputs
+/bin/
+/dist/
+/m65c02
+/m65c02.exe
+
+# Profiling, traces, and coverage
+/profile-out/
+/coverage.out
+/coverage.html
+/*.coverprofile
+/*.pprof
+/*.prof
+/*.trace
+
+# Go test artifacts
+*.test
+*.out
+
+# Local scratch
+/tmp/
+/scratch/
+/.local/
+
+# Editor and OS artifacts
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/
+/.gopls/
+
+# Merge and patch debris
+*.orig
+*.rej
