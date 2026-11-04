@@ -1,7 +1,7 @@
 # m65c02 build and verification entry points. Go 1.16-compatible.
 GO ?= go
 PROJECT := m65c02
-VERSION ?= dev-v0.0.0
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 OUT ?= ..
 INCLUDE_GIT ?= 1
 
@@ -45,11 +45,6 @@ baseline:
 	@mkdir -p '$(OUT)'
 	@set -eu; \
 	name='$(PROJECT)-baseline-$(VERSION)'; \
-	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
-		rev=$$(git rev-parse --short=7 HEAD); \
-		name="$$name-$$rev"; \
-		if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$$(git ls-files --others --exclude-standard)" ]; then name="$$name-dirty"; fi; \
-	fi; \
 	out=$$(cd '$(OUT)' && pwd)/$$name.tar.gz; \
 	git_exclude=''; \
 	if [ '$(INCLUDE_GIT)' = 0 ]; then git_exclude='--exclude=$(PROJECT)/.git'; fi; \
