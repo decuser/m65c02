@@ -23,6 +23,14 @@ var examples = []example{
 	{name: "sta-cross", program: []byte{0x9d, 0xff, 0x30}, x: 2, effective: 0x3101, cycles: 5, wantMem: 0x5a, wantPC: 0x203},
 	{name: "inc-nocross", program: []byte{0xfe, 0x00, 0x30}, x: 2, effective: 0x3002, initial: 0x7f, cycles: 7, wantMem: 0x80, wantPC: 0x203},
 	{name: "inc-cross", program: []byte{0xfe, 0xff, 0x30}, x: 2, effective: 0x3101, initial: 0x7f, cycles: 7, wantMem: 0x80, wantPC: 0x203},
+	{name: "lda-absx-nocross", program: []byte{0xbd, 0x00, 0x30}, x: 2, effective: 0x3002, initial: 0x80, cycles: 4, wantA: 0x80, wantMem: 0x80, wantPC: 0x203},
+	{name: "lda-absx-cross", program: []byte{0xbd, 0xff, 0x30}, x: 2, effective: 0x3101, initial: 0x80, cycles: 5, wantA: 0x80, wantMem: 0x80, wantPC: 0x203},
+	{name: "nop03", program: []byte{0x03}, cycles: 1, wantPC: 0x201},
+	{name: "nop-ea", program: []byte{0xea}, cycles: 2, wantPC: 0x201},
+	{name: "jmp", program: []byte{0x4c, 0x34, 0x12}, cycles: 3, wantPC: 0x1234},
+	{name: "bne-not-taken", program: []byte{0xd0, 0x10}, cycles: 2, wantPC: 0x202},
+	{name: "bne-taken", program: []byte{0xd0, 0x10}, cycles: 3, wantPC: 0x212},
+	{name: "bne-cross", program: []byte{0xd0, 0x80}, cycles: 4, wantPC: 0x182},
 	{name: "brk", program: []byte{0x00, 0xea}, cycles: 7, wantPC: 0x5678},
 }
 
@@ -30,6 +38,9 @@ func setup(e example) (*CPU, *RAM) {
 	c := New(0x200)
 	c.State.X = e.x
 	c.State.A = 0x5a
+	if e.name == "bne-not-taken" {
+		c.State.P |= FlagZ
+	}
 	m := &RAM{}
 	for i, v := range e.program {
 		m.Bytes[0x200+uint16(i)] = v
@@ -56,13 +67,16 @@ func check(t *testing.T, e example, c *CPU, m *RAM) {
 	if c.State.PC != e.wantPC {
 		t.Errorf("PC %04x != %04x", c.State.PC, e.wantPC)
 	}
-	if e.name == "lda" && (c.State.A != e.wantA || c.State.P&FlagN == 0) {
+	if (e.name == "lda" || e.name == "lda-absx-nocross" || e.name == "lda-absx-cross") && (c.State.A != e.wantA || c.State.P&FlagN == 0) {
 		t.Errorf("LDA A/P %02x %02x", c.State.A, c.State.P)
 	}
 	if e.effective != 0 && m.Bytes[e.effective] != e.wantMem {
 		t.Errorf("memory %04x =%02x wanted %02x", e.effective, m.Bytes[e.effective], e.wantMem)
 	}
 	if e.name == "brk" {
+		if c.State.P&FlagD != 0 {
+			t.Error("CMOS BRK did not clear D")
+		}
 		if c.State.S != 0xfc {
 			t.Errorf("S=%02x", c.State.S)
 		}
@@ -153,8 +167,8 @@ func TestBusAddressesAndDummyAccess(t *testing.T) {
 					t.Error("unexpected SYNC")
 				}
 			}
-			if e.effective != 0 {
-				dummy := uint16(e.program[2])<<8 | uint16(byte(uint16(e.program[1])+uint16(e.x)))
+			if e.effective != 0 && e.name != "lda-absx-nocross" {
+				dummy := uint16(0x202) // CMOS rereads the final operand byte
 				if m.Events[3].Addr != dummy || m.Events[3].Write {
 					t.Errorf("indexed dummy: %+v wanted %04x read", m.Events[3], dummy)
 				}
@@ -184,7 +198,7 @@ func TestInspectNoBusSideEffects(t *testing.T) {
 		_ = c.Snapshot()
 		_ = c.AtInstructionBoundary()
 	}
-	if len(m.Events) != events || c.State != before {
+	if len(m.Events) != events || !reflect.DeepEqual(c.State, before) {
 		t.Fatal("inspection changed state or device")
 	}
 }
@@ -299,5 +313,129 @@ func TestStalledSideEffectReadOccursAgain(t *testing.T) {
 	}
 	if len(m.Events) != 9 {
 		t.Fatalf("expected nine physical transfers: %d", len(m.Events))
+	}
+}
+
+// The baseline of truth for a restored run is an uninterrupted reference,
+// not a second restored execution that might share the same defect.
+func TestSnapshotAgainstUninterruptedTrace(t *testing.T) {
+	for _, e := range examples {
+		t.Run(e.name, func(t *testing.T) {
+			ref, rm := setup(e)
+			if err := ref.StepInstruction(rm); err != nil {
+				t.Fatal(err)
+			}
+			for stop := 0; stop < 35; stop++ {
+				c, m := setup(e)
+				for n := 0; n < stop && c.State.Instructions == 0; n++ {
+					if _, err := c.StepMicro(m); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if c.State.Instructions > 0 {
+					break
+				}
+				ss := c.Snapshot()
+				oldEvents := append([]Request(nil), m.Events...)
+				copyBus := *m
+				copyBus.Events = append([]Request(nil), m.Events...)
+				restored := &CPU{}
+				restored.Restore(ss)
+				if err := restored.StepInstruction(&copyBus); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(copyBus.Events, rm.Events) || !reflect.DeepEqual(copyBus.Bytes, rm.Bytes) || !reflect.DeepEqual(restored.State, ref.State) {
+					t.Fatalf("different from uninterrupted trace at microstep %d, prefix %d", stop, len(oldEvents))
+				}
+			}
+		})
+	}
+}
+func TestPresentedSYNCAndStableEntry(t *testing.T) {
+	c, m := setup(examples[len(examples)-1])
+	c.State.P |= FlagD
+	if !c.AtInstructionBoundary() || !c.State.Pending.Sync || c.State.Pending.Addr != 0x200 {
+		t.Fatalf("unprepared SYNC: %+v", c.State)
+	}
+	// Run to BRK first stack push and then through decrement; saved cycle
+	// remains stable despite S changing during post-bus execution.
+	for c.State.Cycles < 3 {
+		if _, err := c.StepMicro(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.State.Selected.addr != 0x1fe && c.State.Selected.addr != 0x1ff {
+		t.Fatalf("unexpected selected cycle %04x", c.State.Selected.addr)
+	}
+	if err := c.StepInstruction(m); err != nil {
+		t.Fatal(err)
+	}
+	if c.State.P&FlagD != 0 {
+		t.Fatal("BRK must clear D")
+	}
+	if !c.AtInstructionBoundary() {
+		t.Fatal("next SYNC fetch not prepared")
+	}
+	if len(m.Events) != int(c.State.Cycles) {
+		t.Fatal("bus events/cycles mismatch")
+	}
+}
+
+// A stalled operand read and RMW dummy read must not commit the instruction
+// prematurely or corrupt the separately retained operand.
+type stallAtAddress struct {
+	RAM
+	addr      uint16
+	remaining int
+}
+
+func (m *stallAtAddress) Transfer(r Request) Result {
+	v := m.RAM.Transfer(r)
+	if !r.Write && r.Addr == m.addr && m.remaining > 0 {
+		m.remaining--
+		v.Ready = false
+	}
+	return v
+}
+func TestRMWReadStalls(t *testing.T) {
+	e := examples[3] // INC abs,X noncross
+	ref, rm := setup(e)
+	if err := ref.StepInstruction(rm); err != nil {
+		t.Fatal(err)
+	}
+	for _, addr := range []uint16{0x200, 0x3002} {
+		c, m := setup(e)
+		bus := &stallAtAddress{RAM: *m, addr: addr, remaining: 2}
+		if err := c.StepInstruction(bus); err != nil {
+			t.Fatal(err)
+		}
+		if c.State.Cycles != ref.State.Cycles+2 || bus.Bytes[0x3002] != rm.Bytes[0x3002] {
+			t.Fatalf("stall at %04x: %+v", addr, c.State)
+		}
+		if len(bus.Events) != len(rm.Events)+2 {
+			t.Fatalf("missing stalled accesses at %04x", addr)
+		}
+	}
+}
+
+// A one-cycle instruction must hand directly to the next unresolved SYNC
+// fetch. No extra dummy cycle or per-template fetch is permitted.
+func TestBackToBackSingleCycleSYNC(t *testing.T) {
+	cpu := New(0x200)
+	mem := &RAM{}
+	mem.Bytes[0x200], mem.Bytes[0x201], mem.Bytes[0x202] = 0x03, 0x03, 0xea
+	for i := 0; i < 2; i++ {
+		if err := cpu.StepCycle(mem); err != nil {
+			t.Fatal(err)
+		}
+		if cpu.State.Cycles != uint64(i+1) || cpu.State.Instructions != uint64(i+1) || !cpu.AtInstructionBoundary() {
+			t.Fatalf("cycle %d not at prepared SYNC: %+v", i, cpu.State)
+		}
+		if cpu.State.Pending.Addr != uint16(0x201+i) {
+			t.Fatalf("next address %04X", cpu.State.Pending.Addr)
+		}
+	}
+	if len(mem.Events) != 2 || !mem.Events[0].Sync || !mem.Events[1].Sync {
+		t.Fatal("back-to-back SYNC not observed")
 	}
 }

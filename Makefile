@@ -65,3 +65,7 @@ help:
 		'validate: build, vet, and test (add conformance checks when available)' \
 		'bench: run Go benchmarks' 'baseline: nested project source archive' \
 		'fmt: go fmt' 'clean: remove generated profiling files'
+
+.PHONY: run
+run:
+	$(GO) run ./cmd/m65c02-monitor

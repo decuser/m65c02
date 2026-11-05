@@ -13,3 +13,10 @@ Read in this order:
 **Next:** implement the disposable spike, report its results to the user/Claude, then draft Technical Specification 0.1. The selected SingleStepTests 65C02 set is the default cycle/bus oracle; Dormann covers functional semantics. Record a deliberate deviation rather than silently changing the compatibility profile. If external tests cannot be downloaded, state that clearly.
 
 The eventual Visible Computer/Wails UI and complete Apple IIe host are not part of the initial headless CPU milestone.
+
+## Disposable interactive spike monitor
+
+Run `make run`, then `help`, `trace on`, `cycle 1`, `cycle 10`, `step`,
+`micro`, `regs`, `mem 0300`, or `run`. `demo counter` resets a finite demo
+with ten `INC $0300,X` instructions and BRK. The counter ends at `$0A`.
+This is a teaching/validation adapter, not a complete 65C02 or M2 supervisor.
