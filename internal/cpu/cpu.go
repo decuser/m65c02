@@ -118,6 +118,8 @@ const (
 	opDOP
 	opDOA
 	opDOOperand
+	opExtPrepare
+	opExtCommit
 )
 const maxOps = 5
 
@@ -196,6 +198,8 @@ const (
 	entryBRKPushP
 	entryBRKVectorLo
 	entryBRKVectorHi
+	entryExtendedRead
+	entryExtendedWrite
 	entryCount
 )
 
@@ -203,7 +207,7 @@ var entries = [entryCount]entry{
 	fetch, immediate, operandLow, indexedHigh, indexedDummy, indexedRead,
 	indexedWrite, rmwRead, rmwDummy, rmwWrite, nopDummy, jumpHi,
 	branchOffset, branchDummy, branchCross, brkSignature, brkPushHi,
-	brkPushLo, brkPushP, brkVectorLo, brkVectorHi,
+	brkPushLo, brkPushP, brkVectorLo, brkVectorHi, extendedRead, extendedWrite,
 }
 
 func (c *CPU) chooseEntry() (uint8, error) {
@@ -280,7 +284,10 @@ func (c *CPU) chooseEntry() (uint8, error) {
 			return entryBRKVectorHi, nil
 		}
 	}
-	return 0, errors.New("unsupported opcode or cycle")
+	if c.extWriteCycle() {
+		return entryExtendedWrite, nil
+	}
+	return entryExtendedRead, nil
 }
 
 func (c *CPU) operate(op opCode) {
@@ -350,6 +357,10 @@ func (c *CPU) operate(op opCode) {
 		s.DO = s.A
 	case opDOOperand:
 		s.DO = s.Operand
+	case opExtPrepare:
+		c.extPrepare()
+	case opExtCommit:
+		c.extCommit()
 	}
 }
 func (c *CPU) setNZ(v byte) {
@@ -406,7 +417,7 @@ func (c *CPU) endCycle() error {
 	case 0xd0:
 		done = (s.Stage == 1 && !s.Taken) || (s.Stage == 2 && s.Base&0xff00 == s.EA&0xff00) || s.Stage == 3
 	default:
-		return errors.New("unsupported opcode")
+		done = c.extDone()
 	}
 	s.Cycles++
 	if done {

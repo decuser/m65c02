@@ -72,10 +72,58 @@ func demo(cycleLimit int) error {
 	}
 	return nil
 }
+
+// demoLoop runs a finite program spanning more of the full CMOS instruction set.
+func demoLoop(cycleLimit int, showTrace bool) error {
+	m := &machine{}
+	code := []byte{0xa2, 0x00, 0x64, 0x20, 0xe8, 0x86, 0x21, 0xe0, 0x0a, 0xd0, 0xf9, 0xa5, 0x21, 0x8d, 0x00, 0x03, 0x00, 0x00}
+	copy(m.ram[0x200:], code)
+	m.ram[0xfffe] = 0
+	m.ram[0xffff] = 4
+	c := cpu.New(0x200)
+	for c.View().Instructions < 45 {
+		if int(c.View().Cycles) >= cycleLimit {
+			return fmt.Errorf("cycle limit reached")
+		}
+		if err := c.StepCycle(m); err != nil {
+			return err
+		}
+	}
+	if showTrace {
+		for i, e := range m.trace {
+			direction := "READ"
+			if e.request.Write {
+				direction = "WRITE"
+			}
+			sync := ""
+			if e.request.Sync {
+				sync = " SYNC"
+			}
+			fmt.Printf("%3d  $%04X  %-5s $%02X%s\n", i+1, e.request.Address, direction, e.data, sync)
+		}
+	}
+	s := c.View()
+	fmt.Printf("Loop: memory $0300=$%02X (expected $0A); PC=$%04X; cycles=%d; instructions=%d\n", m.ram[0x300], s.PC, s.Cycles, s.Instructions)
+	if m.ram[0x300] != 0x0a || s.PC != 0x400 || s.Cycles != 118 || s.Instructions != 45 {
+		return fmt.Errorf("unexpected extended demo result")
+	}
+	return nil
+}
 func main() {
 	limit := flag.Int("limit", 1000, "maximum physical cycles")
+	example := flag.String("demo", "counter", "counter or loop")
+	trace := flag.Bool("trace", false, "show every bus transfer for loop")
 	flag.Parse()
-	if err := demo(*limit); err != nil {
+	var err error
+	switch *example {
+	case "counter":
+		err = demo(*limit)
+	case "loop":
+		err = demoLoop(*limit, *trace)
+	default:
+		err = fmt.Errorf("unknown demo %q", *example)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
