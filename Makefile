@@ -32,7 +32,9 @@ fmt:
 	else echo 'fmt: no Go packages yet'; fi
 
 validate: build vet test
-	@echo 'validate: complete (external conformance corpus not yet installed)'
+	@if [ -n "$${M65C02_CORPUS:-}" ]; then \
+		echo 'validate: selected Synertek corpus supplied; results above'; \
+	else echo 'validate: selected Synertek corpus unavailable (set M65C02_CORPUS)'; fi
 
 bench:
 	@if find . -name '*_test.go' -not -path './.git/*' -print -quit | grep -q .; then \
@@ -64,8 +66,13 @@ help:
 	@printf '%s\n' 'build: compile Go packages' 'test: quick Go tests' \
 		'validate: build, vet, and test (add conformance checks when available)' \
 		'bench: run Go benchmarks' 'baseline: nested project source archive' \
-		'fmt: go fmt' 'clean: remove generated profiling files'
+		'fmt: go fmt' 'clean: remove generated profiling files' \
+        'run-prod: execute production CPU demonstration'
 
 .PHONY: run
 run:
 	$(GO) run ./cmd/m65c02-monitor
+
+.PHONY: run-prod
+run-prod:
+	$(GO) run ./cmd/m65c02-prod
