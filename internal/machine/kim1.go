@@ -14,6 +14,8 @@ type KIM1 struct {
 	*Machine
 	RAM                *RAM
 	RRIOT002, RRIOT003 *RRIOT
+	Serial             *KIMSerial
+	TTYSelect          bool
 }
 
 // NewKIM1 takes raw, 1024-byte 6530-002 and 6530-003 ROM images.
@@ -34,7 +36,7 @@ func NewKIM1(rom002, rom003 []byte) (*KIM1, error) {
 		return nil, err
 	}
 	bus := NewBackplane()
-	board := kim1Decoder{ram: ram, chip002: a, chip003: b}
+	board := &kim1Decoder{ram: ram, chip002: a, chip003: b}
 	if err := bus.Map(0, 0xffff, board); err != nil {
 		return nil, err
 	}
@@ -47,6 +49,7 @@ func NewKIM1(rom002, rom003 []byte) (*KIM1, error) {
 		return nil, err
 	}
 	k := &KIM1{Machine: machine, RAM: ram, RRIOT002: a, RRIOT003: b}
+	board.jumpers = k
 	k.ResetCPU()
 	return k, nil
 }
@@ -74,12 +77,38 @@ func (k *KIM1) ResetCPU() {
 
 func (k *KIM1) ReleaseReset() { k.Bus.Reset = false; k.CPU.SetLines(false, false, false) }
 
+// ConnectSerial attaches the KIM-1 TTY wiring to the 6530-002 and clock.
+// Call once, before stepping the machine.
+func (k *KIM1) ConnectSerial(bitCycles uint64) *KIMSerial {
+	if k.Serial != nil {
+		return k.Serial
+	}
+	k.Serial = NewKIMSerial(k.RRIOT002, bitCycles)
+	k.Bus.ConnectClock(k.Serial)
+	return k.Serial
+}
+
 type kim1Decoder struct {
 	ram              *RAM
 	chip002, chip003 *RRIOT
+	jumpers          *KIM1
 }
 
-func (b kim1Decoder) Read(addr uint16) byte {
+// A-21 connects PA0 (column A) and A-V connects row 3 of the 74145.
+// A closed TTY-select jumper makes a keyboard-matrix contact, not an
+// unconditional port bit or a software boot-mode switch.
+func (b *kim1Decoder) updateJumper() {
+	value, mask := b.chip002.OutputB()
+	row3 := (mask&0x1e) == 0x1e && (value>>1)&0x0f == 3
+	input := b.chip002.input[0] | 1
+	if b.jumpers != nil && b.jumpers.TTYSelect && row3 {
+		input &^= 1
+	}
+	b.chip002.SetInputA(input)
+}
+
+func (b *kim1Decoder) Read(addr uint16) byte {
+	b.updateJumper()
 	switch a := addr & 0x1fff; {
 	case a < 0x0400:
 		return b.ram.Read(a)
@@ -100,7 +129,7 @@ func (b kim1Decoder) Read(addr uint16) byte {
 	}
 }
 
-func (b kim1Decoder) Write(addr uint16, value byte) {
+func (b *kim1Decoder) Write(addr uint16, value byte) {
 	switch a := addr & 0x1fff; {
 	case a < 0x0400:
 		b.ram.Write(a, value)

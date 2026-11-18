@@ -64,6 +64,35 @@ mapping and initial execution test, **not** an interactive KIM-1 boot session;
 the keypad/display and serial wiring are still pending. Use `TESTS_DIR` or
 `KIM_ROM002`/`KIM_ROM003` to override the default paths.
 
+## KIM-1 serial pin trace (c21)
+
+With the ROMs in `../tests`, run:
+
+```
+make run-kim1-trace
+make run-kim1
+```
+
+Both targets launch a separate emulator process. The trace version prints
+cycle-stamped 6530-002 PB0 (TX) and PA7 (RX) transitions, while the ordinary
+version suppresses the raw pin log. They are **bounded headless runs**, not
+interactive terminals yet. A RUBOUT autobaud character is injected shortly
+after CPU reset. Use `KIM_CYCLES=3000000`, `KIM_BIT_CYCLES=9091`, or
+`KIM_INPUT=...` to experiment.
+
+The `machines/kim1.toml` configuration selects the physical KIM-1 TTY jumper.
+When `tty_select = true`, A-21 (6530-002 PA0) connects to A-V (74145 row 3);
+the jumper changes the port input only while row 3 is selected. With the
+original ROMs the serial decoder now receives the monitor's `KIM` greeting
+and address prompt. The regression test `make validate-kim1` checks both
+jumper positions, and verifies that the greeting appears only when closed.
+
+The serial component watches real port pins and does not intercept monitor
+code. The runner still consumes a fixed `KIM_INPUT` string and stops after a
+chosen number of cycles; live keyboard input is a separate next step. Some
+initial nonprinting bytes appear in the raw decoder output and have not yet
+been explained.
+
 ## Disposable interactive spike monitor
 
 Run `make run`, then `help`, `trace on`, `cycle 1`, `cycle 10`, `step`,

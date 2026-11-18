@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"os"
 	"testing"
 
@@ -18,6 +19,43 @@ func testKIM1(t *testing.T) *KIM1 {
 		t.Fatal(err)
 	}
 	return k
+}
+
+func TestKIM1TTYBoot(t *testing.T) {
+	p002, p003 := os.Getenv("M65C02_KIM_ROM002"), os.Getenv("M65C02_KIM_ROM003")
+	if p002 == "" || p003 == "" {
+		t.Skip("supply both original KIM-1 ROM paths")
+	}
+	for _, tty := range []bool{false, true} {
+		k, err := NewKIM1FromFiles(p002, p003)
+		if err != nil {
+			t.Fatal(err)
+		}
+		k.TTYSelect = tty
+		s := k.ConnectSerial(9091)
+		if err = k.StepInstruction(); err != nil {
+			t.Fatal(err)
+		}
+		k.ReleaseReset()
+		var output []byte
+		for k.Bus.Cycles < 1500000 {
+			if k.Bus.Cycles == 2000 {
+				s.Queue([]byte{0x7f})
+			}
+			if err = k.Clock(); err != nil {
+				t.Fatal(err)
+			}
+			s.DrainEdges()
+			output = append(output, s.DrainDecoded()...)
+		}
+		seen := bytes.Contains(output, []byte("KIM"))
+		if seen != tty {
+			t.Fatalf("tty_select=%v: prompt=%v, output=%q", tty, seen, output)
+		}
+		if tty {
+			t.Logf("original KIM-1 monitor serial output: %q", output)
+		}
+	}
 }
 
 func TestKIM1DecodeAndMirrors(t *testing.T) {
@@ -69,6 +107,30 @@ func TestKIM1ResetFetch(t *testing.T) {
 	}
 	if k.CPU.View().PC != 0x1c23 {
 		t.Fatalf("ROM NOP not executed: %04x", k.CPU.View().PC)
+	}
+}
+
+func TestKIM1TTYJumperSelectsOnlyRowThree(t *testing.T) {
+	k := testKIM1(t)
+	io := k.RRIOT002.RegisterDevice()
+	io.Write(3, 0x1e) // PB1-PB4 drive the 74145 row select.
+	io.Write(2, 0x06) // binary 3 selects row 3.
+	read := func() byte { return k.Bus.Transfer(cpu.Request{Address: 0x1740}).DataIn }
+	if got := read(); got != 0xff {
+		t.Fatalf("open jumper: %02x", got)
+	}
+	k.TTYSelect = true
+	if got := read(); got != 0xfe {
+		t.Fatalf("closed jumper row 3: %02x", got)
+	}
+	io.Write(2, 0x04) // row 2; jumper must release PA0.
+	if got := read(); got != 0xff {
+		t.Fatalf("other row: %02x", got)
+	}
+	io.Write(3, 0) // decoder no longer driven.
+	io.Write(2, 0x06)
+	if got := read(); got != 0xff {
+		t.Fatalf("undriven decoder: %02x", got)
 	}
 }
 

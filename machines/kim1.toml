@@ -1,0 +1,11 @@
+[machine]
+model = "kim1"
+clock_hz = 1000000
+
+[rom]
+chip_002 = "../tests/6530-002.bin"
+chip_003 = "../tests/6530-003.bin"
+
+[jumpers]
+# Connect A-21 (PA0/column A) to A-V (decoder row 3).
+tty_select = true
