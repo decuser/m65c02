@@ -48,6 +48,22 @@ compatibility deviations must be documented rather than silently introduced.
 
 The eventual Visible Computer/Wails UI and complete Apple IIe host are not part of the initial headless CPU milestone.
 
+## KIM-1 ROM verification
+
+Place `6530-002.bin` and `6530-003.bin` directly in `~/forge/dev/tests`,
+alongside the other external test directories. From `~/forge/dev/m65c02`:
+
+```
+make validate-kim1
+```
+
+The target requires both files, verifies all 2,048 bytes through the emulated
+bus (including low/high ROM mirrors), performs the CPU reset-vector fetch, and
+executes the first 20 instructions of the original monitor. This is a ROM
+mapping and initial execution test, **not** an interactive KIM-1 boot session;
+the keypad/display and serial wiring are still pending. Use `TESTS_DIR` or
+`KIM_ROM002`/`KIM_ROM003` to override the default paths.
+
 ## Disposable interactive spike monitor
 
 Run `make run`, then `help`, `trace on`, `cycle 1`, `cycle 10`, `step`,

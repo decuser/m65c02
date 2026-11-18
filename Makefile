@@ -8,8 +8,10 @@ TESTS_DIR ?= ../tests
 SYNERTEK_DIR ?= $(TESTS_DIR)/65x02/synertek65c02/v1
 DORMANN_DIR ?= $(TESTS_DIR)/6502_65C02_functional_tests/bin_files
 DORMANN_PROFILE_DIR ?= $(TESTS_DIR)/dormann-profile
+KIM_ROM002 ?= $(TESTS_DIR)/6530-002.bin
+KIM_ROM003 ?= $(TESTS_DIR)/6530-003.bin
 
-.PHONY: all build test validate validate-full bench vet fmt baseline clean help
+.PHONY: all build test validate validate-full validate-kim1 bench vet fmt baseline clean help
 
 all: test
 
@@ -36,6 +38,15 @@ fmt:
 	else echo 'fmt: no Go packages yet'; fi
 
 validate: build vet test
+
+# Verify every byte of both original ROMs in the KIM-1 memory map, then
+# execute reset and the first 20 monitor instructions. Missing ROMs fail.
+validate-kim1:
+	@test -f '$(KIM_ROM002)' || { echo 'validate-kim1: missing $(KIM_ROM002)'; exit 1; }
+	@test -f '$(KIM_ROM003)' || { echo 'validate-kim1: missing $(KIM_ROM003)'; exit 1; }
+	@M65C02_KIM_ROM002='$(abspath $(KIM_ROM002))' \
+	 M65C02_KIM_ROM003='$(abspath $(KIM_ROM003))' \
+	 $(GO) test ./internal/machine -run '^TestKIM1RealMonitorROM$$' -count=1 -v
 
 # Full M1 external gate. All three Dormann fixtures are required.
 validate-full: build vet test
@@ -91,6 +102,7 @@ help:
 	@printf '%s\n' 'build: compile Go packages' 'test: quick Go tests' \
 		'validate: build, vet, and available conformance tests' \
 		'validate-full: all Synertek and three Dormann tests (../tests)' \
+		'validate-kim1: map both original ROMs and execute initial monitor code (../tests)' \
 		'bench: run Go benchmarks' 'baseline: nested project source archive' \
 		'fmt: go fmt' 'clean: remove generated profiling files' \
         'run-prod: execute production CPU demonstration'
