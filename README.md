@@ -1,7 +1,7 @@
 # Apple 65C02 Processor Laboratory
 
 **Architecture Baseline:** 0.3 (frozen 2026-11-04)  
-**Status:** design handoff; no production CPU implementation yet.  
+**Status:** production CPU through c14; M1 final corpus gate pending.  
 **Language:** Go 1.16. **Target:** Apple IIe-compatible base CMOS 65C02 (no Rockwell bit operations or WAI/STP).
 
 Read in this order:
@@ -10,7 +10,41 @@ Read in this order:
 3. `docs/schema-spike-mandate.md` — disposable four-template spike.
 4. `docs/reference-collection.md` — test corpora, reference texts and inspirations.
 
-**Next:** implement the disposable spike, report its results to the user/Claude, then draft Technical Specification 0.1. The selected SingleStepTests 65C02 set is the default cycle/bus oracle; Dormann covers functional semantics. Record a deliberate deviation rather than silently changing the compatibility profile. If external tests cannot be downloaded, state that clearly.
+The production engine lives in `internal/cpu`. All 256 Synertek-profile opcode
+bytes, cycle/microstep/instruction stepping, snapshots, and IRQ/NMI/RESET paths
+are implemented. See `review/production-c10.md` through `production-c14.md`
+for actual conformance evidence and remaining limitations.
+
+## Local conformance corpuses
+
+The two upstream repositories are kept **outside** this source tree, at the
+following locations on the development machine:
+
+```
+~/forge/dev/tests/65x02/
+~/forge/dev/tests/6502_65C02_functional_tests/
+```
+
+From `~/forge/dev/m65c02`, run:
+
+```
+make validate             # quick local tests; external tests if configured
+make validate-full        # 2,560,000 Synertek vectors + Dormann functional
+```
+
+`validate-full` uses the sibling `../tests` directory by default. It runs
+Synertek v1 in four groups of 640,000 vectors, then Dormann's published 6502
+functional binary. A missing required repository is a **failure**, not a skip.
+Override `TESTS_DIR=/other/directory` if needed. `validate-full` also requires
+`../tests/dormann-profile/65C02_profile.bin` and
+`../tests/dormann-profile/6502_interrupt_cmos.bin`, the independently rebuilt
+65C02 and CMOS interrupt fixtures. Their setup is documented in
+`docs/dormann-conformance.md`. They must not be confused with the upstream
+Rockwell-enabled 65C02 binary.
+
+The selected Synertek test set remains the default bus/cycle oracle and
+Dormann complements it with semantic and interrupt testing. Deliberate
+compatibility deviations must be documented rather than silently introduced.
 
 The eventual Visible Computer/Wails UI and complete Apple IIe host are not part of the initial headless CPU milestone.
 

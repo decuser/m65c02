@@ -59,6 +59,47 @@ func TestDormann(t *testing.T) {
 
 type dormannRAM struct{ data [65536]byte }
 
+// TestDormannProfile65C02 accepts only the profile-configured rebuild described
+// in review/production-c14.md; the upstream prebuilt binary requires Rockwell.
+func TestDormannProfile65C02(t *testing.T) {
+	path := os.Getenv("M65C02_DORMANN_EXTENDED")
+	if path == "" {
+		t.Skip("profile-configured extended 65C02 fixture unavailable")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != 65526 {
+		t.Fatalf("unexpected image size %d (expected binary starting at $000A)", len(b))
+	}
+	m := &dormannRAM{}
+	copy(m.data[0x000a:], b)
+	c := New(0x400)
+	var last uint16
+	var repeats int
+	for n := 0; n < 100000000; n++ {
+		pc := c.View().PC
+		if n > 0 && pc == last {
+			repeats++
+		} else {
+			repeats = 0
+		}
+		if repeats == 3 {
+			if pc == 0x1c3c {
+				t.Logf("passed in %d instructions and %d cycles", n, c.View().Cycles)
+				return
+			}
+			t.Fatalf("trap at $%04X after %d instructions (expected $1C3C)", pc, n)
+		}
+		last = pc
+		if err := c.StepInstruction(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatalf("extended test timed out; PC=$%04X", c.View().PC)
+}
+
 func (m *dormannRAM) Transfer(r Request) Response {
 	if r.Write {
 		m.data[r.Address] = r.DataOut
