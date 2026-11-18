@@ -58,6 +58,47 @@ func TestKIM1TTYBoot(t *testing.T) {
 	}
 }
 
+func TestKIM1TTYInputAfterPrompt(t *testing.T) {
+	p002, p003 := os.Getenv("M65C02_KIM_ROM002"), os.Getenv("M65C02_KIM_ROM003")
+	if p002 == "" || p003 == "" {
+		t.Skip("supply both original KIM-1 ROM paths")
+	}
+	k, err := NewKIM1FromFiles(p002, p003)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.TTYSelect = true
+	s := k.ConnectSerial(9091)
+	if err = k.StepInstruction(); err != nil {
+		t.Fatal(err)
+	}
+	k.ReleaseReset()
+	var output []byte
+	queued := false
+	command := []byte("1234 ")
+	for k.Bus.Cycles < 12000000 {
+		if k.Bus.Cycles == 2000 {
+			s.Queue([]byte{0x7f})
+		}
+		if !queued && k.Bus.Cycles > 3300000 {
+			queued = true
+		}
+		if queued && s.RXIdle() && len(command) > 0 {
+			s.Queue(command[:1])
+			command = command[1:]
+		}
+		if err = k.Clock(); err != nil {
+			t.Fatal(err)
+		}
+		s.DrainEdges()
+		output = append(output, s.DrainDecoded()...)
+	}
+	t.Logf("post-input monitor output: %q", output)
+	if !bytes.Contains(output, []byte("1234 FF")) {
+		t.Fatalf("address selection did not respond: %q", output)
+	}
+}
+
 func TestKIM1DecodeAndMirrors(t *testing.T) {
 	k := testKIM1(t)
 	read := func(address uint16) byte { return k.Bus.Transfer(cpu.Request{Address: address}).DataIn }

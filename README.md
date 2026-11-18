@@ -75,9 +75,9 @@ make run-kim1
 
 Both targets launch a separate emulator process. The trace version prints
 cycle-stamped 6530-002 PB0 (TX) and PA7 (RX) transitions, while the ordinary
-version suppresses the raw pin log. They are **bounded headless runs**, not
-interactive terminals yet. A RUBOUT autobaud character is injected shortly
-after CPU reset. Use `KIM_CYCLES=3000000`, `KIM_BIT_CYCLES=9091`, or
+version suppresses the raw pin log. Since c23 they run continuously and
+accept keyboard input by default. A RUBOUT autobaud character is injected
+shortly after CPU reset. Use `KIM_CYCLES=3000000`, `KIM_BIT_CYCLES=9091`, or
 `KIM_INPUT=...` to experiment.
 
 The `machines/kim1.toml` configuration selects the physical KIM-1 TTY jumper.
@@ -88,10 +88,73 @@ and address prompt. The regression test `make validate-kim1` checks both
 jumper positions, and verifies that the greeting appears only when closed.
 
 The serial component watches real port pins and does not intercept monitor
-code. The runner still consumes a fixed `KIM_INPUT` string and stops after a
-chosen number of cycles; live keyboard input is a separate next step. Some
-initial nonprinting bytes appear in the raw decoder output and have not yet
-been explained.
+code. Some initial nonprinting bytes appear in the raw decoder output and
+have not yet been explained.
+
+## Live KIM-1 terminal (c23)
+
+Run `make run-kim1` in a real terminal. It boots the original ROMs, performs
+the RUBOUT baud-rate handshake, and continues running until Ctrl-C or Ctrl-D.
+The keyboard is put in raw mode and restored on exit. The terminal displays
+typed characters locally because the original KIM-1 expects a full-duplex
+teleprinter, then displays responses decoded from PB0. For example, type
+`1234 ` (including the trailing space) to select an address and see `1234 FF`.
+
+`make run-kim1-trace` also prints cycle-stamped RX/TX transitions to stderr.
+`KIM_CYCLES=6000000` selects a finite, unpaced run useful for automated
+checks, rather than the default paced interactive operation.
+
+The configured `clock_hz` determines wall-clock pacing; every simulated bus
+cycle still executes. Host input is buffered and injected as serial frames
+after the initial monitor greeting. The keyboard currently uses `stty` on
+Linux, and the first input window is calibrated for 110 baud at 1 MHz.
+
+## Virtual serial port for Minicom (c24)
+
+On Linux, start the emulator in the existing terminal:
+
+```
+make run-kim1-pty
+```
+
+It prints the exact connection command, using the allocated device (for
+example `/dev/pts/7`). In a **separate** terminal, run that command:
+
+```
+minicom -D /dev/pts/7 -b 110 -8
+```
+
+Configure Minicom for 8N1 and local echo (`Ctrl-A`, then `E` if needed).
+Once Minicom is ready, press Return to start the original monitor's
+baud-detection sequence. The host adapter translates that initial Return
+(or ASCII DEL `$7F`, or the modern Delete key's `ESC [ 3 ~`) into the RUBOUT
+frame that the **original KIM-1 ROM requires**. This translation happens only
+before startup completes. Opening the device does not inject RUBOUT.
+The PTY carries terminal *bytes*; the KIM-1
+side still transmits and receives physical serial bit frames through the
+6530. Changing Minicom's port speed alone does not alter simulated baud
+timing. Use `KIM_BIT_CYCLES` to choose the emulated bit rate, initially 9091
+for 110 baud at 1 MHz.
+
+With a trace window, `HOST received` shows the terminal's actual bytes;
+`RX` transitions show the resulting 6530 input pins. The original MOS
+KIM-1 User's Manual (August 1976, page 18 and monitor description)
+explicitly requires RUBOUT for the ROM's initial baud measurement. A PAL-1
+may instead initialize its terminal using Return, as documented in the
+2022 PAL-1 serial programming tutorial.
+
+`make run-kim1-pty-trace` opens only an **additional trace window** using
+`x-terminal-emulator`. The emulator remains in the current terminal and
+Minicom remains in its own terminal. Likewise `make run-kim1-trace` opens a
+separate trace window without creating a second KIM-1 emulator. Closing the
+trace window does not stop the CPU.
+
+The PTY integration test opens a real Linux pseudoterminal, communicates with
+the original ROM, and verifies the `1234 FF` response. A separately installed
+Minicom GUI was not exercised in the development container. Reconnection to
+an already-running emulator has not been qualified. Ctrl-C interrupts the
+Make target; an interrupted Make invocation can return nonzero without
+indicating an emulator failure.
 
 ## Disposable interactive spike monitor
 

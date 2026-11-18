@@ -43,6 +43,9 @@ func NewKIMSerial(chip *RRIOT, bitCycles uint64) *KIMSerial {
 // KIM-1 autobaud begins with RUBOUT ($7F), so hosts normally queue it first.
 func (s *KIMSerial) Queue(data []byte) { s.pending = append(s.pending, data...) }
 
+// RXIdle reports that the current host byte has completed its stop bits.
+func (s *KIMSerial) RXIdle() bool { return len(s.pending) == 0 && len(s.rxFrames) == 0 }
+
 // DrainEdges and DrainDecoded return independent events since the last drain.
 func (s *KIMSerial) DrainEdges() []SerialEdge {
 	out := append([]SerialEdge(nil), s.edges...)

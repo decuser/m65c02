@@ -10,12 +10,12 @@ DORMANN_DIR ?= $(TESTS_DIR)/6502_65C02_functional_tests/bin_files
 DORMANN_PROFILE_DIR ?= $(TESTS_DIR)/dormann-profile
 KIM_ROM002 ?= $(TESTS_DIR)/6530-002.bin
 KIM_ROM003 ?= $(TESTS_DIR)/6530-003.bin
-KIM_CYCLES ?= 1000000
+KIM_CYCLES ?= 0
 KIM_BIT_CYCLES ?= 9091
 KIM_INPUT ?=
 KIM_CONFIG ?= machines/kim1.toml
 
-.PHONY: all build test validate validate-full validate-kim1 run-kim1 run-kim1-trace bench vet fmt baseline clean help
+.PHONY: all build test validate validate-full validate-kim1 run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace bench vet fmt baseline clean help
 
 all: test
 
@@ -50,17 +50,21 @@ validate-kim1:
 	@test -f '$(KIM_ROM003)' || { echo 'validate-kim1: missing $(KIM_ROM003)'; exit 1; }
 	@M65C02_KIM_ROM002='$(abspath $(KIM_ROM002))' \
 	 M65C02_KIM_ROM003='$(abspath $(KIM_ROM003))' \
-	 $(GO) test ./internal/machine -run '^TestKIM1(RealMonitorROM|TTYBoot)$$' -count=1 -v
+	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor))$$' -count=1 -v
 
-# go run executes the emulator in a child OS process; no background daemon.
-run-kim1 run-kim1-trace:
+# Run a temporary compiled executable directly. This lets its SIGINT handler
+# exit normally, instead of go run reporting an interrupted child as an error.
+run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace:
 	@test -f '$(KIM_ROM002)' || { echo '$@: missing $(KIM_ROM002)'; exit 1; }
 	@test -f '$(KIM_ROM003)' || { echo '$@: missing $(KIM_ROM003)'; exit 1; }
-	@$(GO) run ./cmd/m65c02-kim1 \
+	@bin=$$(mktemp); trap 'rm -f "$$bin"' EXIT; \
+	 $(GO) build -o "$$bin" ./cmd/m65c02-kim1 && "$$bin" \
 		-config '$(KIM_CONFIG)' \
 		-rom002 '$(abspath $(KIM_ROM002))' -rom003 '$(abspath $(KIM_ROM003))' \
 		-cycles '$(KIM_CYCLES)' -bit-cycles '$(KIM_BIT_CYCLES)' \
-		-input '$(KIM_INPUT)' $(if $(filter run-kim1-trace,$@),-trace,)
+		-input '$(KIM_INPUT)' $(if $(filter 0,$(KIM_CYCLES)),$(if $(filter run-kim1 run-kim1-trace,$@),-live,),) \
+		$(if $(filter run-kim1-pty run-kim1-pty-trace,$@),-pty,) \
+		$(if $(filter run-kim1-trace run-kim1-pty-trace,$@),-trace-window,)
 
 # Full M1 external gate. All three Dormann fixtures are required.
 validate-full: build vet test
@@ -117,8 +121,10 @@ help:
 		'validate: build, vet, and available conformance tests' \
 		'validate-full: all Synertek and three Dormann tests (../tests)' \
 		'validate-kim1: map both original ROMs and execute initial monitor code (../tests)' \
-		'run-kim1: run KIM-1 ROM code with virtual serial I/O' \
-		'run-kim1-trace: run KIM-1 with cycle-stamped serial line trace' \
+		'run-kim1: interactive KIM-1 terminal (Ctrl-C/Ctrl-D exits)' \
+		'run-kim1-trace: interactive KIM-1 with cycle-stamped serial trace' \
+		'run-kim1-pty: expose KIM-1 to Minicom via /dev/pts/N' \
+		'run-kim1-pty-trace: PTY serial port plus separate trace window' \
 		'bench: run Go benchmarks' 'baseline: nested project source archive' \
 		'fmt: go fmt' 'clean: remove generated profiling files' \
         'run-prod: execute production CPU demonstration'
