@@ -52,7 +52,11 @@ type State struct {
 	Control                              uint8 // 0=instruction, 1=IRQ, 2=NMI, 3=RESET
 	IRQ, NMI, NMISeen, NMIPending, Reset bool
 }
-type CPU struct{ state State }
+type CPU struct {
+	state State
+	// ObserveMicro is nil unless a host explicitly enables instruction-internal tracing.
+	ObserveMicro func(before State, event MicroEvent, after State)
+}
 
 func New(pc uint16) *CPU {
 	c := &CPU{state: State{PC: pc, S: 0xff, P: FlagU, Phase: PreBus}}
@@ -497,7 +501,15 @@ type MicroEvent struct {
 	CycleComplete bool
 }
 
-func (c *CPU) StepMicro(b Bus) (MicroEvent, error) {
+func (c *CPU) StepMicro(b Bus) (event MicroEvent, err error) {
+	if observer := c.ObserveMicro; observer != nil {
+		before := c.state
+		defer func() {
+			if err == nil {
+				observer(before, event, c.state)
+			}
+		}()
+	}
 	s := &c.state
 	switch s.Phase {
 	case PreBus:

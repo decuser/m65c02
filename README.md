@@ -280,6 +280,37 @@ reported in Kimulator's hardware notes. This is a timing assertion, not a
 timing adjustment to the emulator. Run it with `make validate-kim1` when
 the original ROM binaries are installed.
 
+C38 replaces the exclusive waveform probe selector with **independent signal
+selection**. CPU, 6530-002 and 6530-003 groups each have ALL/NONE controls;
+individual buses, control lines, RIOT ports, direction registers and LED
+signals can be enabled together on a single cycle axis. The **CPU, Display,
+Keypad, Serial, All, None** presets offer useful starting points. **Expand
+buses into bits** additionally exposes individual address, data and port bits
+with their own checkboxes. Selection changes redraw existing captures only:
+they do not touch CPU execution or the trace ring. The transaction table
+and selected-cycle details identify both RIOTs, independent of waveform
+selection. **Change source** still selects which RIOT's transitions the C35
+change navigator searches; it does not restrict visible waveform signals.
+
+C39 adds opt-in **MICRO TRACE** instrumentation. With capture enabled, the CPU
+reports each executed pre-bus operation, the bus resolution, and each post-bus
+operation together with before/after CPU state. The selected bus
+cycle and internal steps use the same cycle number. Internal events are kept in
+a separate bounded 32,768-step ring, so very old CPU cycles may outlive their
+microstep detail. Toggling capture on starts a fresh internal history; toggling
+off removes the observation callback. This is observation, not reversible
+execution. The existing CSV/TEXT exports remain physical bus-cycle exports.
+
+C40 separates internal observability from external machine signals. The KIM-1
+logic analyzer now contains only CPU bus/control and RIOT probes. The front
+panel's **VISIBLE COMPUTER** button opens `/visible`, a dedicated CPU-internals
+view. Start micro capture there, then pause/step and select a cycle to see its
+actual executed PRE/BUS/POST operations and before/after register/latch changes.
+Both windows share the running machine and cycle numbering. Internal capture
+is opt-in; the logic analyzer no longer requests or renders internal details.
+The Visible Computer page is an initial observational interface, not yet a
+reversible microstep debugger or a full internal waveform view.
+
 
 On Linux, start the emulator in the existing terminal:
 

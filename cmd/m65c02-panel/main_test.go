@@ -113,6 +113,11 @@ func TestPanelRoutesAndHardwareControls(t *testing.T) {
 		t.Fatalf("missing analyzer page: %d", w.Code)
 	}
 	w = httptest.NewRecorder()
+	p.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/visible", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "CPU micro-operations") {
+		t.Fatalf("missing visible computer page: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
 	p.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/state", nil))
 	var s panelState
 	if err := json.Unmarshal(w.Body.Bytes(), &s); err != nil {

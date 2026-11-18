@@ -30,6 +30,13 @@ tr:hover { background:#2a4130; cursor:pointer; }
 .view-options select { background:#263d30; color:#e1e8d1; border:1px solid #64836a; padding:5px; }
 .change-tools { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:4px 0 12px; font:12px monospace; }
 .change-tools select { max-width:min(100%,700px); background:#263d30; color:#e1e8d1; border:1px solid #64836a; padding:8px; }
+.probe-settings { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0; font:12px monospace; }
+.probe-settings details { border:1px solid #42614c; border-radius:5px; padding:9px; min-width:235px; flex:1; }
+.probe-settings summary { cursor:pointer; font-weight:bold; }
+.signal-options { display:flex; flex-wrap:wrap; gap:8px 12px; margin-top:9px; }
+.signal-options label { white-space:nowrap; cursor:pointer; }
+.probe-settings button { padding:5px 8px; margin-top:8px; }
+.bit-options { display:flex; flex-wrap:wrap; gap:5px 9px; margin:4px 0 8px; }
 </style>
 </head>
 <body>
@@ -40,24 +47,73 @@ tr:hover { background:#2a4130; cursor:pointer; }
  <a class="export-link" href="/api/trace/export?format=csv" download="kim1-trace.csv">EXPORT CSV</a><a class="export-link" href="/api/trace/export?format=text" download="kim1-trace.txt">EXPORT TEXT</a>
  </div></header>
 <div id="status" class="status">Connecting…</div>
-<p class="legend"><strong>Amber separators = opcode fetch (SYNC).</strong> The transaction table groups each instruction's bus cycles and decodes its captured operand reads. A15–A0, D7–D0, R/W, IRQ, NMI, RESET, RDY and Φ2 remain visible. OLDER pauses the CPU and pages backward; NEWER pages forward; LIVE follows the newest cycles. Export pauses the CPU and downloads all retained cycles.</p>
-<div class="view-options"><label>Probe <select id="probe"><option value="cpu">CPU BUS</option><option value="riot002">6530-002 / DISPLAY</option><option value="riot003">6530-003 / APPLICATION</option></select></label><label><input id="expandBits" type="checkbox"> Expand bus/port bits</label><label>Cycle width <select id="zoom"><option value="44">Compact</option><option value="56" selected>Normal</option><option value="78">Wide</option></select></label><span>All three probes share the same cycle numbers.</span></div>
-<div class="change-tools"><button id="findChanges">CAPTURE RIOT CHANGES</button><button id="prevChange" disabled>◀ CHANGE</button><button id="nextChange" disabled>CHANGE ▶</button><select id="changeList" aria-label="Captured RIOT changes"><option>Choose a RIOT probe, then capture</option></select><span id="changeStatus">Pauses CPU and searches the retained trace</span></div>
+<p class="legend"><strong>Amber separators = opcode fetch (SYNC).</strong> All enabled CPU and RIOT signals share one cycle timeline. Select signals and presets below. OLDER/NEWER navigate the ring; export pauses and downloads all retained cycles.</p>
+<div class="view-options"><label>Preset <select id="preset"><option value="cpu">CPU</option><option value="display">Display</option><option value="keypad">Keypad</option><option value="serial">Serial</option><option value="all">All</option><option value="none">None</option><option value="custom">Custom</option></select></label><label><input id="expandBits" type="checkbox"> Expand buses into bits</label><label>Cycle width <select id="zoom"><option value="44">Compact</option><option value="56" selected>Normal</option><option value="78">Wide</option></select></label></div>
+<div id="probeSettings" class="probe-settings" aria-label="Individual logic analyzer probes"></div>
+<div class="change-tools"><label>Change source <select id="probe"><option value="riot002">6530-002 / DISPLAY</option><option value="riot003">6530-003 / APPLICATION</option></select></label><button id="findChanges">CAPTURE RIOT CHANGES</button><button id="prevChange" disabled>◀ CHANGE</button><button id="nextChange" disabled>CHANGE ▶</button><select id="changeList" aria-label="Captured RIOT changes"><option>Choose a RIOT probe, then capture</option></select><span id="changeStatus">Pauses CPU and searches the retained trace</span></div>
 <div class="scope"><canvas id="scope" width="1640" height="845" aria-label="Logic analyzer signal waveforms"></canvas></div>
 <div id="detail" class="detail">No samples yet</div>
-<div class="tableview"><table><thead><tr><th>Cycle</th><th>Address</th><th>Data</th><th>R/W</th><th>SYNC</th><th>IRQ</th><th>NMI</th><th>RESET</th><th>RDY</th><th>PA</th><th>PB</th><th>LED</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="tableview"><table><thead><tr><th>Cycle</th><th>Address</th><th>Data</th><th>R/W</th><th>SYNC</th><th>IRQ</th><th>NMI</th><th>RESET</th><th>RDY</th><th>002 PA</th><th>002 PB</th><th>003 PA</th><th>003 PB</th><th>LED</th></tr></thead><tbody id="rows"></tbody></table></div>
 <script>
 (() => {
  'use strict';
  const canvas=document.getElementById('scope'), ctx=canvas.getContext('2d');
- const bitLanes=[...Array.from({length:16},(_,i)=>'A'+(15-i)),...Array.from({length:8},(_,i)=>'D'+(7-i))];
  const controlLanes=['R/W','SYNC','IRQ','NMI','RESET','RDY','Φ2'];
- let expanded=false,dx=56,following=true,probe='cpu';
+ const groupSpecs={cpu:['ADDRESS','DATA',...controlLanes],riot002:['PA','PB','DDRA','DDRB','DIGIT','SEG'],riot003:['PA','PB','DDRA','DDRB']};
+ const wideSpecs={cpu:{ADDRESS:16,DATA:8},riot002:{PA:8,PB:8,DDRA:8,DDRB:8},riot003:{PA:8,PB:8,DDRA:8,DDRB:8}};
+ const groupTitles={cpu:'CPU',riot002:'6530-002 / Display',riot003:'6530-003 / Application'};
+ const presets={cpu:['cpu.ADDRESS','cpu.DATA',...controlLanes.map(s=>'cpu.'+s)],display:['cpu.ADDRESS','cpu.DATA','cpu.R/W','cpu.SYNC','riot002.PA','riot002.PB','riot002.DIGIT','riot002.SEG'],keypad:['cpu.ADDRESS','cpu.DATA','cpu.R/W','riot002.PA','riot002.PB','riot002.DDRA','riot002.DDRB'],serial:['cpu.ADDRESS','cpu.DATA','cpu.R/W','riot002.PA','riot002.PB'],all:Object.entries(groupSpecs).flatMap(([g,names])=>names.map(n=>g+'.'+n)),none:[]};
+ let enabled=new Set(presets.cpu), disabledBits=new Set();
+ let expanded=false,dx=56,following=true,probe='riot002';
  let rows=[],before=0,live=true,running=false,powered=true,selected=-1;
  let cycleRows=[];
  let changes=[],changeIndex=-1;
  let pageCursors=[0],pageIndex=0;
  const hex=(n,width)=>Number(n).toString(16).toUpperCase().padStart(width,'0');
+ function signalLanes(){
+   const lanes=[];
+   for(const [group,names] of Object.entries(groupSpecs))for(const name of names){
+     const id=group+'.'+name;
+     if(!enabled.has(id))continue;
+     const bits=wideSpecs[group][name];
+     if(expanded&&bits){
+       for(let n=bits-1;n>=0;n--)if(!disabledBits.has(id+'.'+n))lanes.push({id:id+'.'+n,label:(group==='cpu'?'':group==='riot002'?'002.':'003.')+name+n,bit:n,base:id});
+     }else lanes.push({id,label:(group==='cpu'?'':group==='riot002'?'002.':'003.')+name,bits:bits||((name==='DIGIT')?1:8)});
+   }
+   return lanes;
+ }
+ function renderProbeControls(){
+   const root=document.getElementById('probeSettings');root.replaceChildren();
+   for(const [group,names] of Object.entries(groupSpecs)){
+     const details=document.createElement('details');details.open=true;
+     const summary=document.createElement('summary');summary.textContent=groupTitles[group];details.appendChild(summary);
+     for(const [caption,on] of [['ALL',true],['NONE',false]]){
+       const button=document.createElement('button');button.textContent=caption;
+       button.onclick=()=>{for(const name of names){const id=group+'.'+name;if(on)enabled.add(id);else enabled.delete(id);}
+         document.getElementById('preset').value='custom';renderProbeControls();detail(selected);};
+       details.appendChild(button);
+     }
+     const options=document.createElement('div');options.className='signal-options';
+     for(const name of names){
+       const id=group+'.'+name,label=document.createElement('label'),input=document.createElement('input');
+       input.type='checkbox';input.checked=enabled.has(id);
+       input.onchange=()=>{if(input.checked)enabled.add(id);else enabled.delete(id);document.getElementById('preset').value='custom';detail(selected);};
+       label.append(input,' '+name);options.appendChild(label);
+       const bits=wideSpecs[group][name];
+       if(expanded&&bits){
+         const bitOptions=document.createElement('div');bitOptions.className='bit-options';
+         for(let bit=bits-1;bit>=0;bit--){
+           const bitId=id+'.'+bit,bLabel=document.createElement('label'),bInput=document.createElement('input');
+           bInput.type='checkbox';bInput.checked=!disabledBits.has(bitId);
+           bInput.onchange=()=>{if(bInput.checked)disabledBits.delete(bitId);else disabledBits.add(bitId);document.getElementById('preset').value='custom';draw();};
+           bLabel.append(bInput,' '+name+bit);bitOptions.appendChild(bLabel);
+         }
+         options.appendChild(bitOptions);
+       }
+     }
+     details.appendChild(options);root.appendChild(details);
+   }
+ }
  function instruction(i){
    const c=rows[i];if(!c||!c.sync)return '';
    const operands=[];
@@ -112,43 +168,49 @@ tr:hover { background:#2a4130; cursor:pointer; }
  }
  async function post(control,down=true){const r=await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({control,down})});if(!r.ok)throw Error((await r.text()).trim());}
  function value(c,lane){
-   if(probe!=='cpu'&&(lane.startsWith('PA')||lane.startsWith('PB'))){
-     const bank=c.pins?.[probe],port=lane.slice(0,2).toLowerCase(),bits=bank?.[port]??0;
-     return lane.length>2?(bits>>Number(lane.slice(2)))&1:bits;
-   }
-   if(lane[0]==='A')return(c.address>>Number(lane.slice(1)))&1;
-   if(lane[0]==='D')return(c.data>>Number(lane.slice(1)))&1;
-   return({'R/W':!c.write,'SYNC':c.sync,'IRQ':c.irq,'NMI':c.nmi,'RESET':c.reset,'RDY':c.ready,'Φ2':true})[lane]?1:0;
+   const [group,name]=lane.base?lane.base.split('.'):lane.id.split('.');
+   let v;
+   if(group==='cpu'){
+     v=({'ADDRESS':c.address,'DATA':c.data,'R/W':!c.write,'SYNC':c.sync,'IRQ':c.irq,'NMI':c.nmi,'RESET':c.reset,'RDY':c.ready,'Φ2':1})[name];
+   }else if(name==='DIGIT')v=c.pins?.digit??-1;
+   else if(name==='SEG')v=c.pins?.segments??0;
+   else v=c.pins?.[group]?.[name.toLowerCase()]??0;
+   return lane.bit===undefined?v:(v>>lane.bit)&1;
  }
- function detail(i,source='refresh'){selected=i;const c=rows[i];const bank=c?.pins?.[probe];document.getElementById('detail').textContent=c?
-   `${instructionAt(i)}\nCYCLE ${c.cycle}  $${hex(c.address,4)}  ${c.write?'WRITE':'READ '} $${hex(c.data,2)}   SYNC=${+c.sync} IRQ=${+c.irq} NMI=${+c.nmi} RESET=${+c.reset} RDY=${+c.ready}`+(bank?`\n${probe.toUpperCase()} PA=$${hex(bank.pa,2)} PB=$${hex(bank.pb,2)} DDRA=$${hex(bank.ddra,2)} DDRB=$${hex(bank.ddrb,2)}`:'')+(probe==='riot002'&&c.pins?`\nLED DIGIT=${c.pins.digit<0?'none':c.pins.digit+1} SEGMENTS=$${hex(c.pins.segments,2)}`:''):'No sample selected';
+ function detail(i,source='refresh'){selected=i;const c=rows[i];document.getElementById('detail').textContent=c?
+   `${instructionAt(i)}\nCYCLE ${c.cycle}  $${hex(c.address,4)}  ${c.write?'WRITE':'READ '} $${hex(c.data,2)}   SYNC=${+c.sync} IRQ=${+c.irq} NMI=${+c.nmi} RESET=${+c.reset} RDY=${+c.ready}`+
+   ['riot002','riot003'].map(group=>{const b=c.pins?.[group];return b?`\n${group.toUpperCase()} PA=$${hex(b.pa,2)} PB=$${hex(b.pb,2)} DDRA=$${hex(b.ddra,2)} DDRB=$${hex(b.ddrb,2)}`:'';}).join('')+
+   (c.pins?`\nLED DIGIT=${c.pins.digit<0?'none':c.pins.digit+1} SEGMENTS=$${hex(c.pins.segments,2)}`:''):'No sample selected';
    draw();
    if(i>=0&&source==='table'){
      following=false;updateFollow();const scope=document.querySelector('.scope');
-     scope.scrollLeft=Math.max(0,92+i*dx-scope.clientWidth/2);
+     scope.scrollLeft=Math.max(0,112+i*dx-scope.clientWidth/2);
    }
    if(i>=0&&source==='graph'&&cycleRows[i])cycleRows[i].scrollIntoView({block:'center',behavior:'auto'});
  }
  function updateFollow(){document.getElementById('follow').textContent='FOLLOW: '+(following?'ON':'OFF');}
  function draw(){
-  const portBits=[...Array.from({length:8},(_,i)=>'PA'+(7-i)),...Array.from({length:8},(_,i)=>'PB'+(7-i))];
-  const extra=probe==='riot002'?['DIGIT','SEG']:[];
-  const lanes=probe==='cpu'?(expanded?[...bitLanes,...controlLanes]:['ADDRESS','DATA',...controlLanes]):(expanded?[...portBits,...extra,...controlLanes]:['PA','PB',...extra,...controlLanes]);
-  const x0=92,dy=28;
+  const lanes=signalLanes();
+  const x0=112,dy=28;
   const scope=document.querySelector('.scope');
   canvas.width=x0+Math.max(1,rows.length)*dx+25;
-  canvas.height=lanes.length*dy+58;
+  canvas.height=Math.max(1,lanes.length)*dy+58;
   ctx.fillStyle='#08100e';ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.font='11px monospace';
   lanes.forEach((lane,i)=>{
    const y=35+i*dy;
-   ctx.fillStyle='#bed4ba';ctx.fillText(lane,9,y+3);
+   ctx.fillStyle='#bed4ba';ctx.fillText(lane.label,9,y+3);
    ctx.strokeStyle='#243e2e';ctx.beginPath();ctx.moveTo(x0,y+8);ctx.lineTo(x0+rows.length*dx,y+8);ctx.stroke();
-   if(['ADDRESS','DATA','PA','PB','DIGIT','SEG'].includes(lane)){
-    const address=lane==='ADDRESS',bits=address?4:2;
-    const busValue=c=>lane==='ADDRESS'?c.address:lane==='DATA'?c.data:lane==='PA'?c.pins?.[probe]?.pa??0:lane==='PB'?c.pins?.[probe]?.pb??0:lane==='SEG'?c.pins?.segments??0:Math.max(0,c.pins?.digit??-1);
+   if(lane.id==='cpu.Φ2'){
+    ctx.strokeStyle='#79dfac';ctx.lineWidth=1.5;ctx.beginPath();
+    rows.forEach((c,j)=>{const x=x0+j*dx;ctx.moveTo(x,y+7);ctx.lineTo(x+dx/2,y+7);
+      ctx.lineTo(x+dx/2,y-5);ctx.lineTo(x+dx,y-5);ctx.lineTo(x+dx,y+7);});
+    ctx.stroke();return;
+   }
+   if(lane.bit===undefined && lane.bits && !controlLanes.includes(lane.id.slice(4))){
+    const address=lane.id==='cpu.ADDRESS',bits=address?4:2;
     rows.forEach((c,j)=>{
-     const x=x0+j*dx,v=busValue(c),prior=j?busValue(rows[j-1]):v;
+     const x=x0+j*dx,v=value(c,lane),prior=j?value(rows[j-1],lane):v;
      ctx.strokeStyle=address?'#8fd7e8':'#e7c77e';ctx.lineWidth=1.5;ctx.beginPath();
      if(j&&v!==prior){ctx.moveTo(x-5,y-8);ctx.lineTo(x+5,y+8);ctx.moveTo(x-5,y+8);ctx.lineTo(x+5,y-8);}
      else {ctx.moveTo(x,y-8);ctx.lineTo(x+dx,y-8);ctx.moveTo(x,y+8);ctx.lineTo(x+dx,y+8);}
@@ -156,23 +218,18 @@ tr:hover { background:#2a4130; cursor:pointer; }
      ctx.fillStyle='#162b28';ctx.fillRect(x+7,y-9,dx-14,18);
      ctx.strokeStyle=address?'#558e9b':'#9c8252';ctx.strokeRect(x+7,y-9,dx-14,18);
      ctx.fillStyle=address?'#bceaf4':'#f4d89d';ctx.font='11px monospace';ctx.textAlign='center';
-     ctx.fillText(lane==='DIGIT'&&(!c.pins||c.pins.digit<0)?'–':hex(v,bits),x+dx/2,y+4);ctx.textAlign='left';
+     ctx.fillText(lane.id==='riot002.DIGIT'&&v<0?'–':hex(v,bits),x+dx/2,y+4);ctx.textAlign='left';
     });
     return;
    }
-   if(lane==='Φ2'){
-    ctx.strokeStyle='#79dfac';ctx.lineWidth=1.5;ctx.beginPath();
-    rows.forEach((c,j)=>{const x=x0+j*dx;ctx.moveTo(x,y+7);ctx.lineTo(x+dx/2,y+7);
-      ctx.lineTo(x+dx/2,y-5);ctx.lineTo(x+dx,y-5);ctx.lineTo(x+dx,y+7);});
-    ctx.stroke();return;
-   }
-   ctx.beginPath();ctx.strokeStyle=lane==='SYNC'?'#f8a956':lane==='NMI'?'#ff8175':'#78dda4';ctx.lineWidth=1.5;
+   ctx.beginPath();ctx.strokeStyle=lane.id==='cpu.SYNC'?'#f8a956':lane.id==='cpu.NMI'?'#ff8175':'#78dda4';ctx.lineWidth=1.5;
    rows.forEach((c,j)=>{
     const x=x0+j*dx,lv=value(c,lane),h=y+(lv?-5:7);
     if(j===0)ctx.moveTo(x,h);else {const old=value(rows[j-1],lane);ctx.lineTo(x,y+(old?-5:7));ctx.lineTo(x,h);}
     ctx.lineTo(x+dx,h);
    });ctx.stroke();
   });
+  if(!lanes.length){ctx.fillStyle='#bed4ba';ctx.fillText('No probes enabled. Select signals above.',9,45);}
   rows.forEach((c,j)=>{if(!c.sync)return;const x=x0+j*dx;
     ctx.strokeStyle='#e6b34a';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,20);ctx.lineTo(x,lanes.length*dy+32);ctx.stroke();
   });
@@ -184,12 +241,13 @@ tr:hover { background:#2a4130; cursor:pointer; }
  function table(){const tbody=document.getElementById('rows');tbody.replaceChildren();cycleRows=[];
   rows.forEach((c,i)=>{
    if(c.sync){const group=document.createElement('tr');group.className='instruction-row';
-    const cell=document.createElement('td');cell.colSpan=12;let end=i+1;while(end<rows.length&&!rows[end].sync)end++;
+    const cell=document.createElement('td');cell.colSpan=14;let end=i+1;while(end<rows.length&&!rows[end].sync)end++;
     cell.textContent='▶ '+instruction(i)+'   ['+(end-i)+' captured cycles'+(end===rows.length?' / page edge':'')+']';
     group.appendChild(cell);group.onclick=()=>detail(i,'table');tbody.appendChild(group);}
    const tr=document.createElement('tr');if(c.sync)tr.className='sync-row';
-   const bank=c.pins?.[probe];const led=probe==='riot002'&&c.pins?.digit>=0?'D'+(c.pins.digit+1)+'/'+hex(c.pins.segments,2):'–';
-   [c.cycle,'$'+hex(c.address,4),'$'+hex(c.data,2),c.write?'W':'R',+c.sync,+c.irq,+c.nmi,+c.reset,+c.ready,bank?'$'+hex(bank.pa,2):'–',bank?'$'+hex(bank.pb,2):'–',led].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td);});
+   const b2=c.pins?.riot002,b3=c.pins?.riot003;
+   const led=c.pins?.digit>=0?'D'+(c.pins.digit+1)+'/'+hex(c.pins.segments,2):'–';
+   [c.cycle,'$'+hex(c.address,4),'$'+hex(c.data,2),c.write?'W':'R',+c.sync,+c.irq,+c.nmi,+c.reset,+c.ready,b2?'$'+hex(b2.pa,2):'–',b2?'$'+hex(b2.pb,2):'–',b3?'$'+hex(b3.pa,2):'–',b3?'$'+hex(b3.pb,2):'–',led].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td);});
    tr.onclick=()=>detail(i,'table');tbody.appendChild(tr);cycleRows[i]=tr;
   });
  }
@@ -206,14 +264,14 @@ tr:hover { background:#2a4130; cursor:pointer; }
    detail(selected);table();
   }catch(e){document.getElementById('status').textContent='ERROR: '+e.message;}
  }
- canvas.onclick=e=>{const rect=canvas.getBoundingClientRect();const x=(e.clientX-rect.left)*canvas.width/rect.width;const i=Math.floor((x-92)/dx);if(i>=0&&i<rows.length)detail(i,'graph');};
+ canvas.onclick=e=>{const rect=canvas.getBoundingClientRect();const x=(e.clientX-rect.left)*canvas.width/rect.width;const i=Math.floor((x-112)/dx);if(i>=0&&i<rows.length)detail(i,'graph');};
  const scope=document.querySelector('.scope');
  for(const event of ['wheel','pointerdown','touchstart','keydown'])scope.addEventListener(event,()=>{following=false;updateFollow();});
  document.getElementById('follow').onclick=()=>{following=true;updateFollow();draw();};
- document.getElementById('expandBits').onchange=e=>{expanded=e.target.checked;draw();};
- document.getElementById('probe').onchange=e=>{probe=e.target.value;clearChanges();detail(selected);table();};
+ document.getElementById('expandBits').onchange=e=>{expanded=e.target.checked;renderProbeControls();draw();};
+ document.getElementById('preset').onchange=e=>{if(!presets[e.target.value])return;enabled=new Set(presets[e.target.value]);disabledBits.clear();renderProbeControls();detail(selected);};
+ document.getElementById('probe').onchange=e=>{probe=e.target.value;clearChanges();};
  document.getElementById('findChanges').onclick=async()=>{
-   if(probe==='cpu'){document.getElementById('changeStatus').textContent='Select 6530-002 or 6530-003 first';return;}
    try{
      if(running)await post('PAUSE',true);
      live=false;following=false;updateFollow();
@@ -247,7 +305,7 @@ tr:hover { background:#2a4130; cursor:pointer; }
  for(const [id,control,down] of [['pause','PAUSE',()=>running],['cycle','STEP',()=>true],['instruction','INSTRUCTION',()=>true],['clear','TRACE_CLEAR',()=>true]]){
   document.getElementById(id).onclick=async()=>{try{await post(control,down());pageCursors=[0];pageIndex=0;before=0;live=true;await refresh();}catch(e){document.getElementById('status').textContent='CONTROL ERROR: '+e.message;}};
  }
- refresh();setInterval(()=>{if(live)refresh();},300);
+ renderProbeControls();refresh();setInterval(()=>{if(live)refresh();},300);
 })();
 </script>
 </body></html>

@@ -20,12 +20,14 @@ import (
 	"m65c02/internal/machine"
 )
 
-//go:embed panel.html analyzer.html
+//go:embed panel.html analyzer.html visible.html
 var panelFiles embed.FS
 
 type panelServer struct {
 	mu            sync.Mutex
 	kim           *machine.KIM1
+	microTrace    *machine.MicroTrace
+	microEnabled  bool
 	running       bool
 	powered       bool
 	awaitingReset bool
@@ -66,6 +68,10 @@ func (p *panelServer) powerOn() error {
 		return err
 	}
 	k.Bus.Trace = machine.NewBusTrace(8192)
+	p.microTrace = machine.NewMicroTrace(32768)
+	if p.microEnabled {
+		k.CPU.ObserveMicro = p.microTrace.Record
+	}
 	k.Bus.Trace.PortSampler = func() machine.BoardPins {
 		read := func(chip *machine.RRIOT) machine.RRIOTPins {
 			_, da := chip.OutputA()
@@ -165,6 +171,19 @@ func (p *panelServer) routes() http.Handler {
 		}
 		_, _ = w.Write(page)
 	})
+	mux.HandleFunc("/visible", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET required", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		page, err := fs.ReadFile(panelFiles, "visible.html")
+		if err != nil {
+			http.Error(w, "visible computer unavailable", 500)
+			return
+		}
+		_, _ = w.Write(page)
+	})
 	mux.HandleFunc("/api/trace", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -185,14 +204,42 @@ func (p *panelServer) routes() http.Handler {
 			rows = p.kim.Bus.Trace.Window(before, 128)
 		}
 		result := struct {
-			Rows    []machine.BusCycle `json:"rows"`
-			Cycle   uint64             `json:"cycle"`
-			Running bool               `json:"running"`
-			Powered bool               `json:"powered"`
-		}{rows, p.kim.Bus.Cycles, p.running, p.powered}
+			Rows         []machine.BusCycle  `json:"rows"`
+			Micro        []machine.MicroStep `json:"micro"`
+			MicroEnabled bool                `json:"microEnabled"`
+			Cycle        uint64              `json:"cycle"`
+			Running      bool                `json:"running"`
+			Powered      bool                `json:"powered"`
+		}{Rows: rows, MicroEnabled: p.microEnabled, Cycle: p.kim.Bus.Cycles, Running: p.running, Powered: p.powered}
+		if r.URL.Query().Get("micro") == "1" && p.microEnabled && len(rows) > 0 {
+			result.Micro = p.microTrace.Window(rows[0].Cycle, rows[len(rows)-1].Cycle)
+		}
 		p.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
+	})
+	mux.HandleFunc("/api/trace/micro", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", 405)
+			return
+		}
+		var request struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+		p.mu.Lock()
+		p.microEnabled = request.Enabled
+		if request.Enabled {
+			p.microTrace = machine.NewMicroTrace(32768)
+			p.kim.CPU.ObserveMicro = p.microTrace.Record
+		} else {
+			p.kim.CPU.ObserveMicro = nil
+		}
+		p.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/api/trace/changes", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
