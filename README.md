@@ -193,6 +193,93 @@ This cut is a local HTML presentation with no third-party GUI dependency.
 It does not launch a native Wails window or expose the TTY connection over
 the panel page. Use the separate `run-kim1-pty` targets for Minicom.
 
+### Logic analyzer (c30–c31)
+
+Click **OPEN LOGIC ANALYZER** in the KIM-1 panel to open a separate browser
+window on `/analyzer`. The original panel remains usable. The analyzer shows
+all 16 address bits, all 8 data bits, R/W, opcode-fetch SYNC, IRQ, NMI,
+RESET, RDY and the sampled active Φ2 phase. A transaction table below the
+waveforms shows cycle, address, data and control lines. Click a cycle to
+inspect its resolved bus transaction.
+
+The machine holds a bounded 8,192-cycle ring. The analyzer displays 128
+cycles at a time; **OLDER** pauses the machine if it is running, then pages
+backward through retained history. **NEWER** returns one page toward the most
+recent capture, **LIVE** follows the latest edge again without restarting the
+CPU, and **CLEAR TRACE** discards recorded samples. Pausing before navigating
+is important: at 1 MHz, an 8,192-cycle ring otherwise wraps in about 8 ms.
+**PAUSE**, **STEP CYCLE**, and **STEP INSTRUCTION** operate the shared machine.
+After the initial automatic pause, history paging changes only the view, not
+CPU or peripheral state. Reverse machine execution is not yet implemented. Because every
+record is an active bus transfer, Φ2 is shown as the sampled high phase, not
+a synthesized continuous clock waveform. Capture restarts on cold power-on.
+
+C31 adds amber SYNC boundaries over the waveforms and instruction headers in
+the transaction table. Each opcode is decoded using the CPU's existing opcode
+table; the operand bytes are taken from subsequent recorded bus reads, not
+from a separate memory inspection. Incomplete operands at capture-page edges
+are shown as `??`. Selecting a bus cycle also shows the nearest captured
+instruction context. Page boundaries may begin partway through an instruction.
+
+C32 defaults to **grouped hex buses** instead of individual address/data bit
+lanes. The ADDRESS and DATA lanes draw bus-style crossing transitions and
+hex-value labels for every recorded cycle; selectable cycle widths keep the
+values legible. **Expand address/data bits** restores the individual A15–A0
+and D7–D0 waveforms. The control signals, disassembly, and history controls
+are unchanged. The grouped display remains a read-only presentation of
+captured bus values.
+
+C33 adds a **FOLLOW** switch: scrolling or selecting a historical cycle turns
+automatic right-edge following off while retaining LIVE data updates. FOLLOW
+turns it back on. Selecting a transaction row centers its waveform column;
+selecting a waveform column scrolls the transaction table to its row. The
+waveform now has cycle-number ticks, and Φ2 shows the ideal alternating
+half-cycle high/low clock aligned to each sampled bus transaction.
+
+C34 adds a **Probe** selector to the same logic-analyzer window: CPU BUS,
+6530-002 / DISPLAY, and 6530-003 / APPLICATION. Each CPU bus-cycle record
+now also captures both RIOT chips' externally driven PA/PB pin values and
+their direction registers. The display probe additionally shows the currently
+selected LED digit and segment pattern. Each probe displays the **same cycle
+numbers**; switching probes does not rerun or advance the machine. Use
+**Expand bus/port bits** to inspect PA7–PA0 and PB7–PB0 individually, or leave
+the ports grouped as hex bytes. The table and selected-cycle detail show the
+corresponding values. Φ2 is an ideal, drawn half-cycle clock; the port values
+are sampled after each corresponding emulated bus transfer.
+
+C35 adds **CAPTURE RIOT CHANGES** to the selected 6530 probe. It pauses
+execution, searches the 8,192 retained bus cycles for transitions on PA/PB,
+direction registers, or (for the display chip) the digit/segment outputs,
+and lists the exact cycle of each change. **◀ CHANGE** and **CHANGE ▶**
+jump between events, fetching the matching 128-cycle waveform and transaction
+window and centering the event. The event selector shows PA/PB and the LED
+digit/segment values. The transaction table and selected-cycle details retain
+the associated CPU instruction context. This capture uses existing bus trace
+data; it does not add a separate independent clock or trace timeline. A full
+six-digit scan is visible when its transitions fit within the retained ring;
+at higher emulated speeds, pause to capture before history wraps.
+
+C36 adds **EXPORT CSV** and **EXPORT TEXT** in the logic-analyzer toolbar.
+Either download automatically pauses the CPU and copies the full retained
+8,192-cycle trace (or fewer cycles since reset/clear) as a consistent snapshot.
+Both formats include CPU address, data, read/write and control signals, the
+two RIOTs' PA/PB and direction masks, and the front-panel digit and segments.
+CSV uses one row per cycle with an instruction-context column; TEXT groups
+cycles under decoded instruction headers. Unknown operand bytes at capture
+boundaries are marked `??`. These exports contain only the retained ring,
+not every cycle since power-on.
+
+C37 adds an original-ROM end-to-end timing regression for `SCANDS` at `$1F1F`.
+After allowing the genuine monitor to boot, a RAM-resident `JSR $1F1F`
+invokes the monitor's real routine. The test observes opcode fetches at entry
+and on return, captures RIOT pin transitions on the same bus-cycle timeline,
+and checks that all six LED digits are scanned in order. With the original
+ROM images, SCANDS takes exactly **4,231 cycles** from entry to return, or
+**4,237 cycles including the six-cycle JSR**, matching the independent timing
+reported in Kimulator's hardware notes. This is a timing assertion, not a
+timing adjustment to the emulator. Run it with `make validate-kim1` when
+the original ROM binaries are installed.
+
 
 On Linux, start the emulator in the existing terminal:
 

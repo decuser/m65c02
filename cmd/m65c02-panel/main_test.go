@@ -108,6 +108,11 @@ func TestPanelRoutesAndHardwareControls(t *testing.T) {
 		t.Fatalf("missing panel HTML: %d", w.Code)
 	}
 	w = httptest.NewRecorder()
+	p.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/analyzer", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Logic Analyzer") {
+		t.Fatalf("missing analyzer page: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
 	p.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/state", nil))
 	var s panelState
 	if err := json.Unmarshal(w.Body.Bytes(), &s); err != nil {
@@ -148,6 +153,23 @@ func TestPanelRoutesAndHardwareControls(t *testing.T) {
 	postPanel(t, p, "/api/control", `{"control":"STEP","down":true}`, 204)
 	if p.kim.Bus.Cycles != before+1 {
 		t.Fatal("STEP did not clock one cycle")
+	}
+	p.kim.Bus.Trace = machine.NewBusTrace(16)
+	postPanel(t, p, "/api/control", `{"control":"INSTRUCTION","down":true}`, 204)
+	w = httptest.NewRecorder()
+	p.routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/trace", nil))
+	var capture struct {
+		Rows []machine.BusCycle `json:"rows"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &capture); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.Rows) == 0 {
+		t.Fatal("instruction did not produce bus capture")
+	}
+	postPanel(t, p, "/api/control", `{"control":"TRACE_CLEAR","down":true}`, 204)
+	if got := len(p.kim.Bus.Trace.Window(0, 16)); got != 0 {
+		t.Fatalf("trace clear retained %d samples", got)
 	}
 	postPanel(t, p, "/api/control", `{"control":"PAUSE","down":false}`, 204)
 	postPanel(t, p, "/api/control", `{"control":"STEP","down":true}`, 409)

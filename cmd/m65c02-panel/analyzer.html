@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KIM-1 · Logic Analyzer</title>
+<style>
+:root { font:13px system-ui,sans-serif; color:#e1e8d1; background:#101914; }
+* { box-sizing:border-box; }
+body { margin:0; padding:20px; }
+header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
+h1 { font-size:21px; margin:0; }
+.toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+button { border:1px solid #64836a; background:#263d30; color:#ecf2dd; padding:9px 12px; border-radius:4px; cursor:pointer; }
+.export-link { display:inline-block; border:1px solid #64836a; background:#263d30; color:#ecf2dd; padding:9px 12px; border-radius:4px; text-decoration:none; }
+button:disabled { opacity:.45; cursor:default; }
+.status { font:12px monospace; color:#afc7b2; }
+.legend { margin:12px 0; color:#b9cbb9; }
+.scope { overflow:auto; background:#08100e; border:1px solid #42614c; border-radius:6px; padding:10px; }
+canvas { display:block; }
+.detail { font:13px monospace; margin:12px 0; padding:11px; background:#1d3125; border-radius:4px; white-space:pre-wrap; }
+table { border-collapse:collapse; width:100%; font:12px monospace; }
+th,td { border-bottom:1px solid #2d4834; padding:5px 9px; text-align:left; }
+tr:hover { background:#2a4130; cursor:pointer; }
+.instruction-row { background:#3a3c24; color:#fff0a7; font-weight:700; }
+.instruction-row td { border-top:2px solid #aa9952; padding:9px; }
+.sync-row { background:#273b2f; }
+.tableview { max-height:290px; overflow:auto; margin-top:15px; }
+.view-options { display:flex; align-items:center; flex-wrap:wrap; gap:18px; padding:10px 0; font:12px monospace; }
+.view-options label { cursor:pointer; }
+.view-options select { background:#263d30; color:#e1e8d1; border:1px solid #64836a; padding:5px; }
+.change-tools { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:4px 0 12px; font:12px monospace; }
+.change-tools select { max-width:min(100%,700px); background:#263d30; color:#e1e8d1; border:1px solid #64836a; padding:8px; }
+</style>
+</head>
+<body>
+<header><h1>KIM-1 · Logic Analyzer</h1><div class="toolbar">
+ <button id="live">LIVE</button><button id="follow">FOLLOW: ON</button><button id="older">◀ OLDER</button><button id="newer">NEWER ▶</button>
+ <button id="pause">PAUSE</button><button id="cycle">STEP CYCLE</button><button id="instruction">STEP INSTRUCTION</button>
+ <button id="clear">CLEAR TRACE</button>
+ <a class="export-link" href="/api/trace/export?format=csv" download="kim1-trace.csv">EXPORT CSV</a><a class="export-link" href="/api/trace/export?format=text" download="kim1-trace.txt">EXPORT TEXT</a>
+ </div></header>
+<div id="status" class="status">Connecting…</div>
+<p class="legend"><strong>Amber separators = opcode fetch (SYNC).</strong> The transaction table groups each instruction's bus cycles and decodes its captured operand reads. A15–A0, D7–D0, R/W, IRQ, NMI, RESET, RDY and Φ2 remain visible. OLDER pauses the CPU and pages backward; NEWER pages forward; LIVE follows the newest cycles. Export pauses the CPU and downloads all retained cycles.</p>
+<div class="view-options"><label>Probe <select id="probe"><option value="cpu">CPU BUS</option><option value="riot002">6530-002 / DISPLAY</option><option value="riot003">6530-003 / APPLICATION</option></select></label><label><input id="expandBits" type="checkbox"> Expand bus/port bits</label><label>Cycle width <select id="zoom"><option value="44">Compact</option><option value="56" selected>Normal</option><option value="78">Wide</option></select></label><span>All three probes share the same cycle numbers.</span></div>
+<div class="change-tools"><button id="findChanges">CAPTURE RIOT CHANGES</button><button id="prevChange" disabled>◀ CHANGE</button><button id="nextChange" disabled>CHANGE ▶</button><select id="changeList" aria-label="Captured RIOT changes"><option>Choose a RIOT probe, then capture</option></select><span id="changeStatus">Pauses CPU and searches the retained trace</span></div>
+<div class="scope"><canvas id="scope" width="1640" height="845" aria-label="Logic analyzer signal waveforms"></canvas></div>
+<div id="detail" class="detail">No samples yet</div>
+<div class="tableview"><table><thead><tr><th>Cycle</th><th>Address</th><th>Data</th><th>R/W</th><th>SYNC</th><th>IRQ</th><th>NMI</th><th>RESET</th><th>RDY</th><th>PA</th><th>PB</th><th>LED</th></tr></thead><tbody id="rows"></tbody></table></div>
+<script>
+(() => {
+ 'use strict';
+ const canvas=document.getElementById('scope'), ctx=canvas.getContext('2d');
+ const bitLanes=[...Array.from({length:16},(_,i)=>'A'+(15-i)),...Array.from({length:8},(_,i)=>'D'+(7-i))];
+ const controlLanes=['R/W','SYNC','IRQ','NMI','RESET','RDY','Φ2'];
+ let expanded=false,dx=56,following=true,probe='cpu';
+ let rows=[],before=0,live=true,running=false,powered=true,selected=-1;
+ let cycleRows=[];
+ let changes=[],changeIndex=-1;
+ let pageCursors=[0],pageIndex=0;
+ const hex=(n,width)=>Number(n).toString(16).toUpperCase().padStart(width,'0');
+ function instruction(i){
+   const c=rows[i];if(!c||!c.sync)return '';
+   const operands=[];
+   for(let n=1;n<c.length;n++){
+    const address=(c.address+n)&0xffff;
+    let found;
+    for(let j=i+1;j<rows.length && !rows[j].sync;j++){
+      if(!rows[j].write && rows[j].address===address){found=rows[j].data;break;}
+    }
+    operands.push(found);
+   }
+   const byte=n=>n===undefined?'??':hex(n,2);
+   const word=()=>'$'+byte(operands[1])+byte(operands[0]);
+   const zp=()=>'$'+byte(operands[0]);
+   let suffix='';
+   switch(c.mode){
+    case 'imm':suffix='#'+zp();break;
+    case 'acc':suffix='A';break;
+    case 'zp':suffix=zp();break;
+    case 'zpx':suffix=zp()+',X';break;
+    case 'zpy':suffix=zp()+',Y';break;
+    case 'abs':suffix=word();break;
+    case 'abx':suffix=word()+',X';break;
+    case 'aby':suffix=word()+',Y';break;
+    case 'ix':suffix='('+zp()+',X)';break;
+    case 'iy':suffix='('+zp()+'),Y';break;
+    case 'iz':suffix='('+zp()+')';break;
+    case 'ind':suffix='('+word()+')';break;
+    case 'inx':suffix='('+word()+',X)';break;
+    case 'rel':suffix=operands[0]===undefined?'$????':'$'+hex((c.address+2+(operands[0]<128?operands[0]:operands[0]-256))&0xffff,4);break;
+   }
+   return '$'+hex(c.address,4)+'  '+hex(c.data,2)+(operands.length?' '+operands.map(byte).join(' '):'')+'   '+c.mnemonic+(suffix?' '+suffix:'');
+ }
+ function instructionAt(i){for(let j=i;j>=0;j--)if(rows[j].sync)return instruction(j);return 'instruction began before this page';}
+ function eventInstruction(c){
+   if(c.write)return 'CPU WRITE $'+hex(c.address,4)+' ← $'+hex(c.data,2);
+   return 'RIOT OUTPUT CHANGE';
+ }
+ function clearChanges(){changes=[];changeIndex=-1;document.getElementById('changeList').replaceChildren(new Option('Capture RIOT changes to navigate',''));updateChangeButtons();}
+ function updateChangeButtons(){document.getElementById('prevChange').disabled=changeIndex<=0;document.getElementById('nextChange').disabled=changeIndex<0||changeIndex>=changes.length-1;}
+ async function jumpChange(index){
+   if(index<0||index>=changes.length)return;
+   changeIndex=index;const event=changes[index];
+   const list=document.getElementById('changeList');list.selectedIndex=index;
+   // Load a 128-cycle window that contains this change near its center.
+   live=false;following=false;updateFollow();pageCursors=[event.cycle+64];pageIndex=0;before=event.cycle+64;
+   await refresh(event.cycle);
+   const c=rows.findIndex(row=>row.cycle===event.cycle);
+   if(c>=0)detail(c,'table');
+   document.getElementById('changeStatus').textContent=(index+1)+' / '+changes.length+' changes · '+eventInstruction(event);
+   updateChangeButtons();
+ }
+ async function post(control,down=true){const r=await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({control,down})});if(!r.ok)throw Error((await r.text()).trim());}
+ function value(c,lane){
+   if(probe!=='cpu'&&(lane.startsWith('PA')||lane.startsWith('PB'))){
+     const bank=c.pins?.[probe],port=lane.slice(0,2).toLowerCase(),bits=bank?.[port]??0;
+     return lane.length>2?(bits>>Number(lane.slice(2)))&1:bits;
+   }
+   if(lane[0]==='A')return(c.address>>Number(lane.slice(1)))&1;
+   if(lane[0]==='D')return(c.data>>Number(lane.slice(1)))&1;
+   return({'R/W':!c.write,'SYNC':c.sync,'IRQ':c.irq,'NMI':c.nmi,'RESET':c.reset,'RDY':c.ready,'Φ2':true})[lane]?1:0;
+ }
+ function detail(i,source='refresh'){selected=i;const c=rows[i];const bank=c?.pins?.[probe];document.getElementById('detail').textContent=c?
+   `${instructionAt(i)}\nCYCLE ${c.cycle}  $${hex(c.address,4)}  ${c.write?'WRITE':'READ '} $${hex(c.data,2)}   SYNC=${+c.sync} IRQ=${+c.irq} NMI=${+c.nmi} RESET=${+c.reset} RDY=${+c.ready}`+(bank?`\n${probe.toUpperCase()} PA=$${hex(bank.pa,2)} PB=$${hex(bank.pb,2)} DDRA=$${hex(bank.ddra,2)} DDRB=$${hex(bank.ddrb,2)}`:'')+(probe==='riot002'&&c.pins?`\nLED DIGIT=${c.pins.digit<0?'none':c.pins.digit+1} SEGMENTS=$${hex(c.pins.segments,2)}`:''):'No sample selected';
+   draw();
+   if(i>=0&&source==='table'){
+     following=false;updateFollow();const scope=document.querySelector('.scope');
+     scope.scrollLeft=Math.max(0,92+i*dx-scope.clientWidth/2);
+   }
+   if(i>=0&&source==='graph'&&cycleRows[i])cycleRows[i].scrollIntoView({block:'center',behavior:'auto'});
+ }
+ function updateFollow(){document.getElementById('follow').textContent='FOLLOW: '+(following?'ON':'OFF');}
+ function draw(){
+  const portBits=[...Array.from({length:8},(_,i)=>'PA'+(7-i)),...Array.from({length:8},(_,i)=>'PB'+(7-i))];
+  const extra=probe==='riot002'?['DIGIT','SEG']:[];
+  const lanes=probe==='cpu'?(expanded?[...bitLanes,...controlLanes]:['ADDRESS','DATA',...controlLanes]):(expanded?[...portBits,...extra,...controlLanes]:['PA','PB',...extra,...controlLanes]);
+  const x0=92,dy=28;
+  const scope=document.querySelector('.scope');
+  canvas.width=x0+Math.max(1,rows.length)*dx+25;
+  canvas.height=lanes.length*dy+58;
+  ctx.fillStyle='#08100e';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.font='11px monospace';
+  lanes.forEach((lane,i)=>{
+   const y=35+i*dy;
+   ctx.fillStyle='#bed4ba';ctx.fillText(lane,9,y+3);
+   ctx.strokeStyle='#243e2e';ctx.beginPath();ctx.moveTo(x0,y+8);ctx.lineTo(x0+rows.length*dx,y+8);ctx.stroke();
+   if(['ADDRESS','DATA','PA','PB','DIGIT','SEG'].includes(lane)){
+    const address=lane==='ADDRESS',bits=address?4:2;
+    const busValue=c=>lane==='ADDRESS'?c.address:lane==='DATA'?c.data:lane==='PA'?c.pins?.[probe]?.pa??0:lane==='PB'?c.pins?.[probe]?.pb??0:lane==='SEG'?c.pins?.segments??0:Math.max(0,c.pins?.digit??-1);
+    rows.forEach((c,j)=>{
+     const x=x0+j*dx,v=busValue(c),prior=j?busValue(rows[j-1]):v;
+     ctx.strokeStyle=address?'#8fd7e8':'#e7c77e';ctx.lineWidth=1.5;ctx.beginPath();
+     if(j&&v!==prior){ctx.moveTo(x-5,y-8);ctx.lineTo(x+5,y+8);ctx.moveTo(x-5,y+8);ctx.lineTo(x+5,y-8);}
+     else {ctx.moveTo(x,y-8);ctx.lineTo(x+dx,y-8);ctx.moveTo(x,y+8);ctx.lineTo(x+dx,y+8);}
+     ctx.stroke();
+     ctx.fillStyle='#162b28';ctx.fillRect(x+7,y-9,dx-14,18);
+     ctx.strokeStyle=address?'#558e9b':'#9c8252';ctx.strokeRect(x+7,y-9,dx-14,18);
+     ctx.fillStyle=address?'#bceaf4':'#f4d89d';ctx.font='11px monospace';ctx.textAlign='center';
+     ctx.fillText(lane==='DIGIT'&&(!c.pins||c.pins.digit<0)?'–':hex(v,bits),x+dx/2,y+4);ctx.textAlign='left';
+    });
+    return;
+   }
+   if(lane==='Φ2'){
+    ctx.strokeStyle='#79dfac';ctx.lineWidth=1.5;ctx.beginPath();
+    rows.forEach((c,j)=>{const x=x0+j*dx;ctx.moveTo(x,y+7);ctx.lineTo(x+dx/2,y+7);
+      ctx.lineTo(x+dx/2,y-5);ctx.lineTo(x+dx,y-5);ctx.lineTo(x+dx,y+7);});
+    ctx.stroke();return;
+   }
+   ctx.beginPath();ctx.strokeStyle=lane==='SYNC'?'#f8a956':lane==='NMI'?'#ff8175':'#78dda4';ctx.lineWidth=1.5;
+   rows.forEach((c,j)=>{
+    const x=x0+j*dx,lv=value(c,lane),h=y+(lv?-5:7);
+    if(j===0)ctx.moveTo(x,h);else {const old=value(rows[j-1],lane);ctx.lineTo(x,y+(old?-5:7));ctx.lineTo(x,h);}
+    ctx.lineTo(x+dx,h);
+   });ctx.stroke();
+  });
+  rows.forEach((c,j)=>{if(!c.sync)return;const x=x0+j*dx;
+    ctx.strokeStyle='#e6b34a';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,20);ctx.lineTo(x,lanes.length*dy+32);ctx.stroke();
+  });
+  if(selected>=0){ctx.fillStyle='#ffff9940';ctx.fillRect(x0+selected*dx,13,dx,lanes.length*dy+20);}
+  ctx.fillStyle='#c5d7ca';ctx.fillText(rows.length?'CYCLES '+rows[0].cycle+'–'+rows[rows.length-1].cycle:'NO CAPTURED CYCLES',x0,15);
+  rows.forEach((c,j)=>{if(j%4===0){ctx.fillStyle='#8da99b';ctx.fillText(String(c.cycle),x0+j*dx+2,lanes.length*dy+49);}});
+  if(live&&following)scope.scrollLeft=scope.scrollWidth;
+ }
+ function table(){const tbody=document.getElementById('rows');tbody.replaceChildren();cycleRows=[];
+  rows.forEach((c,i)=>{
+   if(c.sync){const group=document.createElement('tr');group.className='instruction-row';
+    const cell=document.createElement('td');cell.colSpan=12;let end=i+1;while(end<rows.length&&!rows[end].sync)end++;
+    cell.textContent='▶ '+instruction(i)+'   ['+(end-i)+' captured cycles'+(end===rows.length?' / page edge':'')+']';
+    group.appendChild(cell);group.onclick=()=>detail(i,'table');tbody.appendChild(group);}
+   const tr=document.createElement('tr');if(c.sync)tr.className='sync-row';
+   const bank=c.pins?.[probe];const led=probe==='riot002'&&c.pins?.digit>=0?'D'+(c.pins.digit+1)+'/'+hex(c.pins.segments,2):'–';
+   [c.cycle,'$'+hex(c.address,4),'$'+hex(c.data,2),c.write?'W':'R',+c.sync,+c.irq,+c.nmi,+c.reset,+c.ready,bank?'$'+hex(bank.pa,2):'–',bank?'$'+hex(bank.pb,2):'–',led].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td);});
+   tr.onclick=()=>detail(i,'table');tbody.appendChild(tr);cycleRows[i]=tr;
+  });
+ }
+ async function refresh(focusCycle=0){
+  try{const q=before?'?before='+before:'';const r=await fetch('/api/trace'+q,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);
+   const s=await r.json();rows=s.rows||[];running=s.running;powered=s.powered;
+   document.getElementById('status').textContent=(live?'LIVE':'HISTORY PAGE '+(pageIndex+1))+' · '+(running?'RUNNING':'PAUSED')+' · '+s.cycle+' TOTAL CYCLES · '+rows.length+' SHOWN';
+   document.getElementById('pause').textContent=running?'PAUSE':'RESUME';
+   document.getElementById('cycle').disabled=running||!powered;document.getElementById('instruction').disabled=running||!powered;
+   document.getElementById('newer').disabled=live||pageIndex===0;
+   document.getElementById('older').disabled=rows.length===0;
+   selected=focusCycle?rows.findIndex(row=>row.cycle===focusCycle):rows.length?rows.length-1:-1;
+   if(selected<0&&rows.length)selected=rows.length-1;
+   detail(selected);table();
+  }catch(e){document.getElementById('status').textContent='ERROR: '+e.message;}
+ }
+ canvas.onclick=e=>{const rect=canvas.getBoundingClientRect();const x=(e.clientX-rect.left)*canvas.width/rect.width;const i=Math.floor((x-92)/dx);if(i>=0&&i<rows.length)detail(i,'graph');};
+ const scope=document.querySelector('.scope');
+ for(const event of ['wheel','pointerdown','touchstart','keydown'])scope.addEventListener(event,()=>{following=false;updateFollow();});
+ document.getElementById('follow').onclick=()=>{following=true;updateFollow();draw();};
+ document.getElementById('expandBits').onchange=e=>{expanded=e.target.checked;draw();};
+ document.getElementById('probe').onchange=e=>{probe=e.target.value;clearChanges();detail(selected);table();};
+ document.getElementById('findChanges').onclick=async()=>{
+   if(probe==='cpu'){document.getElementById('changeStatus').textContent='Select 6530-002 or 6530-003 first';return;}
+   try{
+     if(running)await post('PAUSE',true);
+     live=false;following=false;updateFollow();
+     const response=await fetch('/api/trace/changes?probe='+probe,{cache:'no-store'});
+     if(!response.ok)throw Error(await response.text());
+     changes=await response.json()||[];changeIndex=-1;
+     const list=document.getElementById('changeList');list.replaceChildren();
+     for(const c of changes){const b=c.pins[probe];const label=c.cycle+'  PA='+hex(b.pa,2)+' PB='+hex(b.pb,2)+(probe==='riot002'?' D'+(c.pins.digit<0?'–':c.pins.digit+1)+' SEG='+hex(c.pins.segments,2):'')+'  '+eventInstruction(c);list.add(new Option(label,c.cycle));}
+     document.getElementById('changeStatus').textContent=changes.length+' changes in retained trace';
+     if(changes.length)await jumpChange(0);else {list.add(new Option('No port transitions captured',''));updateChangeButtons();await refresh();}
+   }catch(e){document.getElementById('changeStatus').textContent='CAPTURE ERROR: '+e.message;}
+ };
+ document.getElementById('changeList').onchange=e=>jumpChange(e.target.selectedIndex);
+ document.getElementById('prevChange').onclick=()=>jumpChange(changeIndex-1);
+ document.getElementById('nextChange').onclick=()=>jumpChange(changeIndex+1);
+ document.getElementById('zoom').onchange=e=>{dx=Number(e.target.value);draw();};
+ document.getElementById('live').onclick=()=>{pageCursors=[0];pageIndex=0;before=0;live=true;following=true;updateFollow();refresh();};
+ document.getElementById('older').onclick=async()=>{
+  try {
+   if(running){await post('PAUSE',true);await refresh();}
+   if(!rows.length)return;
+   const cutoff=rows[0].cycle;
+   if(live){pageCursors=[0];pageIndex=0;live=false;}
+   if(pageCursors[pageIndex+1]!==cutoff)pageCursors=pageCursors.slice(0,pageIndex+1);
+   if(pageCursors.length===pageIndex+1)pageCursors.push(cutoff);
+   pageIndex++;before=pageCursors[pageIndex];await refresh();
+   if(!rows.length){pageIndex--;pageCursors.pop();before=pageCursors[pageIndex];await refresh();}
+  }catch(e){document.getElementById('status').textContent='CONTROL ERROR: '+e.message;}
+ };
+ document.getElementById('newer').onclick=()=>{if(pageIndex<1)return;pageIndex--;before=pageCursors[pageIndex];live=false;refresh();};
+ for(const [id,control,down] of [['pause','PAUSE',()=>running],['cycle','STEP',()=>true],['instruction','INSTRUCTION',()=>true],['clear','TRACE_CLEAR',()=>true]]){
+  document.getElementById(id).onclick=async()=>{try{await post(control,down());pageCursors=[0];pageIndex=0;before=0;live=true;await refresh();}catch(e){document.getElementById('status').textContent='CONTROL ERROR: '+e.message;}};
+ }
+ refresh();setInterval(()=>{if(live)refresh();},300);
+})();
+</script>
+</body></html>

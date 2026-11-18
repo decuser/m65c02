@@ -13,13 +13,14 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
 	"m65c02/internal/machine"
 )
 
-//go:embed panel.html
+//go:embed panel.html analyzer.html
 var panelFiles embed.FS
 
 type panelServer struct {
@@ -63,6 +64,16 @@ func (p *panelServer) powerOn() error {
 	k, err := machine.NewKIM1(p.rom002, p.rom003)
 	if err != nil {
 		return err
+	}
+	k.Bus.Trace = machine.NewBusTrace(8192)
+	k.Bus.Trace.PortSampler = func() machine.BoardPins {
+		read := func(chip *machine.RRIOT) machine.RRIOTPins {
+			_, da := chip.OutputA()
+			_, db := chip.OutputB()
+			return machine.RRIOTPins{PA: chip.PinsA(), PB: chip.PinsB(), DDRA: da, DDRB: db}
+		}
+		return machine.BoardPins{R002: read(k.RRIOT002), R003: read(k.RRIOT003),
+			Digit: k.Panel.Current.Digit, Segments: k.Panel.Current.SegmentBits}
 	}
 	if p.ramMode == "device" {
 		// A stable per-device bias with sparse variation on cold starts.
@@ -141,6 +152,68 @@ func (p *panelServer) routes() http.Handler {
 		}
 		_, _ = w.Write(page)
 	})
+	mux.HandleFunc("/analyzer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET required", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		page, err := fs.ReadFile(panelFiles, "analyzer.html")
+		if err != nil {
+			http.Error(w, "analyzer unavailable", 500)
+			return
+		}
+		_, _ = w.Write(page)
+	})
+	mux.HandleFunc("/api/trace", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET required", http.StatusMethodNotAllowed)
+			return
+		}
+		before, err := strconv.ParseUint(r.URL.Query().Get("before"), 10, 64)
+		if r.URL.Query().Get("before") == "" {
+			before = 0
+			err = nil
+		}
+		if err != nil {
+			http.Error(w, "invalid before cycle", 400)
+			return
+		}
+		p.mu.Lock()
+		var rows []machine.BusCycle
+		if p.kim.Bus.Trace != nil {
+			rows = p.kim.Bus.Trace.Window(before, 128)
+		}
+		result := struct {
+			Rows    []machine.BusCycle `json:"rows"`
+			Cycle   uint64             `json:"cycle"`
+			Running bool               `json:"running"`
+			Powered bool               `json:"powered"`
+		}{rows, p.kim.Bus.Cycles, p.running, p.powered}
+		p.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	})
+	mux.HandleFunc("/api/trace/changes", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET required", http.StatusMethodNotAllowed)
+			return
+		}
+		chip := r.URL.Query().Get("probe")
+		if chip != "riot002" && chip != "riot003" {
+			http.Error(w, "select a RIOT probe", http.StatusBadRequest)
+			return
+		}
+		p.mu.Lock()
+		var changes []machine.BusCycle
+		if p.kim.Bus.Trace != nil {
+			changes = p.kim.Bus.Trace.PortChanges(chip)
+		}
+		p.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(changes)
+	})
+	mux.HandleFunc("/api/trace/export", p.exportTrace)
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -259,6 +332,17 @@ func (p *panelServer) routes() http.Handler {
 				http.Error(w, err.Error(), 500)
 				return
 			}
+		case "INSTRUCTION":
+			if p.awaitingReset || p.running {
+				http.Error(w, "pause an initialized machine first", 409)
+				return
+			}
+			if err := p.kim.StepInstruction(); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+		case "TRACE_CLEAR":
+			p.kim.Bus.Trace.Clear()
 		default:
 			http.Error(w, "unknown control", 400)
 			return

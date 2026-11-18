@@ -111,7 +111,7 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
     <div class="switchrow"><span class="silkscreen" style="font-size:12px">A-21 ↔ A-V · TTY SELECT</span><button id="tty" class="toggle" aria-pressed="false">OPEN · KEYPAD</button></div>
     <div class="hint">OPEN: original keypad and LEDs. CLOSED: external serial terminal. This represents the optional wire, clip lead, or switch on the application connector, not a built-in KIM-1 control. After selecting TTY, reset the machine and start the terminal with RUBOUT.</div>
   </section>
-  <div class="footer"><div class="tools"><button id="noteToggle" class="tool" aria-pressed="false">📝 STICKY NOTE</button><button id="instrumentToggle" class="tool">INSTRUMENT MODE</button><button id="pause" class="tool">PAUSE</button><button id="step" class="tool">STEP CYCLE</button></div><div class="status" id="status">Connecting to KIM-1…</div></div>
+  <div class="footer"><div class="tools"><button id="analyzerToggle" class="tool">OPEN LOGIC ANALYZER</button><button id="noteToggle" class="tool" aria-pressed="false">📝 STICKY NOTE</button><button id="instrumentToggle" class="tool">INSTRUMENT MODE</button><button id="pause" class="tool">PAUSE</button><button id="step" class="tool">STEP CYCLE</button></div><div class="status" id="status">Connecting to KIM-1…</div></div>
   <section id="instrument" class="instrument" hidden aria-label="Cycle-level instrumentation"><div class="eyebrow">Cycle-accurate hardware view</div><div class="meter-grid"><div class="meter"><label>CPU CYCLES</label><b id="cycles">0</b></div><div class="meter"><label>PROGRAM COUNTER</label><b id="pc">$0000</b></div><div class="meter"><label>ACTIVE DIGIT</label><b id="active">none</b></div><div class="meter"><label>SEGMENT LINES PA0–6</label><b id="segments">0000000</b></div></div><div id="dwell" class="dwell"></div><p class="hint">Bars measure recent segment-on time derived from the 6530 pin-level scan. When paused, the display shows the active scan position.</p></section>
 </main>
 <script>
@@ -171,6 +171,7 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
   document.getElementById('tty').onclick=()=>{tty=!tty;post('/api/control',{control:'TTY',down:tty});renderTTY();};
   function renderTTY(){const b=document.getElementById('tty');b.classList.toggle('on',tty);b.textContent=tty?'CLOSED · TTY':'OPEN · KEYPAD';b.setAttribute('aria-pressed',String(tty));}
   document.getElementById('instrumentToggle').onclick=()=>{instrument=!instrument;document.getElementById('instrument').hidden=!instrument;};
+  document.getElementById('analyzerToggle').onclick=()=>window.open('/analyzer','kim1-logic-analyzer','width=1280,height=940,resizable=yes,scrollbars=yes');
   document.getElementById('noteToggle').onclick=()=>{const note=document.getElementById('stickyNote');note.hidden=!note.hidden;document.getElementById('noteToggle').setAttribute('aria-pressed',String(!note.hidden));};
   document.getElementById('pause').onclick=()=>{if(!powered||awaitingReset)return;post('/api/control',{control:'PAUSE',down:running});running=!running;document.getElementById('pause').textContent=running?'PAUSE':'RESUME';};
   document.getElementById('step').onclick=()=>{if(powered&&!awaitingReset)post('/api/control',{control:'STEP',down:true});};

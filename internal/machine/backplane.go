@@ -39,6 +39,7 @@ type Backplane struct {
 	Ready            bool
 	IRQ, NMI, Reset  bool
 	LastRequest      cpu.Request
+	Trace            *BusTrace
 }
 
 func NewBackplane() *Backplane { return &Backplane{Floating: 0xff, Ready: true} }
@@ -93,7 +94,9 @@ func (b *Backplane) Transfer(req cpu.Request) cpu.Response {
 		i, n := s.Interrupts()
 		irq, nmi = irq || i, nmi || n
 	}
-	return cpu.Response{DataIn: in, Ready: b.Ready, IRQ: irq, NMI: nmi, Reset: b.Reset}
+	res := cpu.Response{DataIn: in, Ready: b.Ready, IRQ: irq, NMI: nmi, Reset: b.Reset}
+	b.Trace.Record(b.Cycles, req, res)
+	return res
 }
 
 // Machine is an assembly of one CPU and its backplane. The host chooses when
