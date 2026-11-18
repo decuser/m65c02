@@ -223,7 +223,7 @@ func run() error {
 		defer port.Close()
 		defer close(stopPTY)
 		go pollPTY(port, input, connected, stopPTY)
-		fmt.Fprintf(os.Stderr, "KIM-1 serial device: %s\nConnect in another terminal:\n  minicom -D %s -b 110 -8\nEnable local echo with Ctrl-A, E; press Return to start the monitor.\n", port.SlavePath, port.SlavePath)
+		fmt.Fprintf(os.Stderr, "KIM-1 serial device: %s\nConnect in another terminal:\n  minicom -D %s -b 1200 -8\nEnable local echo with Ctrl-A, E; press Return to start the monitor.\n", port.SlavePath, port.SlavePath)
 	}
 	if *live {
 		restore, err := enableRawTerminal()
@@ -264,10 +264,20 @@ func run() error {
 					fmt.Fprintf(traceOut, "%012d HOST         received $%02X\n", k.Bus.Cycles, b)
 				}
 				if bootstrap.accept(b) {
-					s.Queue([]byte{0x7f})
-					autobaudQueued = true
-					readyCycle = k.Bus.Cycles + 3000000
-					fmt.Fprintln(os.Stderr, "KIM-1 autobaud: sending RUBOUT ($7F) on PA7")
+					baud, readErr := port.BaudRate()
+					if readErr != nil {
+						fmt.Fprintf(os.Stderr, "KIM-1 autobaud: %v; check Minicom speed and press Return again\n", readErr)
+					} else if baud > board.ClockHz || baud == 0 {
+						fmt.Fprintf(os.Stderr, "KIM-1 autobaud: invalid PTY speed %d; check Minicom speed and press Return again\n", baud)
+					} else {
+						s.BitCycles = (board.ClockHz + baud/2) / baud
+						s.Queue([]byte{0x7f})
+						autobaudQueued = true
+						// The 110-baud prompt takes roughly 3M CPU cycles.
+						// Scale this conservative input holdoff to the client rate.
+						readyCycle = k.Bus.Cycles + 400*board.ClockHz/baud
+						fmt.Fprintf(os.Stderr, "KIM-1 autobaud: PTY %d baud, %d cycles/bit; sending RUBOUT ($7F) on PA7\n", baud, s.BitCycles)
+					}
 				}
 			default:
 			}

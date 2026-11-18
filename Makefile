@@ -50,7 +50,7 @@ validate-kim1:
 	@test -f '$(KIM_ROM003)' || { echo 'validate-kim1: missing $(KIM_ROM003)'; exit 1; }
 	@M65C02_KIM_ROM002='$(abspath $(KIM_ROM002))' \
 	 M65C02_KIM_ROM003='$(abspath $(KIM_ROM003))' \
-	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor))$$' -count=1 -v
+	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor|PTYAt1200Baud)|TestPTYReadsClientBaud)$$' -count=1 -v
 
 # Run a temporary compiled executable directly. This lets its SIGINT handler
 # exit normally, instead of go run reporting an interrupted child as an error.
@@ -61,7 +61,7 @@ run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace:
 	 $(GO) build -o "$$bin" ./cmd/m65c02-kim1 && "$$bin" \
 		-config '$(KIM_CONFIG)' \
 		-rom002 '$(abspath $(KIM_ROM002))' -rom003 '$(abspath $(KIM_ROM003))' \
-		-cycles '$(KIM_CYCLES)' -bit-cycles '$(KIM_BIT_CYCLES)' \
+		-cycles '$(KIM_CYCLES)' $(if $(filter run-kim1-pty run-kim1-pty-trace,$@),,-bit-cycles '$(KIM_BIT_CYCLES)') \
 		-input '$(KIM_INPUT)' $(if $(filter 0,$(KIM_CYCLES)),$(if $(filter run-kim1 run-kim1-trace,$@),-live,),) \
 		$(if $(filter run-kim1-pty run-kim1-pty-trace,$@),-pty,) \
 		$(if $(filter run-kim1-trace run-kim1-pty-trace,$@),-trace-window,)

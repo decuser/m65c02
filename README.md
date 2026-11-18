@@ -121,7 +121,7 @@ It prints the exact connection command, using the allocated device (for
 example `/dev/pts/7`). In a **separate** terminal, run that command:
 
 ```
-minicom -D /dev/pts/7 -b 110 -8
+minicom -D /dev/pts/7 -b 1200 -8
 ```
 
 Configure Minicom for 8N1 and local echo (`Ctrl-A`, then `E` if needed).
@@ -130,11 +130,17 @@ baud-detection sequence. The host adapter translates that initial Return
 (or ASCII DEL `$7F`, or the modern Delete key's `ESC [ 3 ~`) into the RUBOUT
 frame that the **original KIM-1 ROM requires**. This translation happens only
 before startup completes. Opening the device does not inject RUBOUT.
-The PTY carries terminal *bytes*; the KIM-1
-side still transmits and receives physical serial bit frames through the
-6530. Changing Minicom's port speed alone does not alter simulated baud
-timing. Use `KIM_BIT_CYCLES` to choose the emulated bit rate, initially 9091
-for 110 baud at 1 MHz.
+The PTY carries terminal *bytes*, but retains Minicom's termios baud setting.
+The adapter reads that setting when the startup key arrives and converts it
+to timed serial frames on the 6530 pins. The original ROM then measures the
+RUBOUT frame to negotiate the rate itself. No separate `KIM_BIT_CYCLES`
+configuration is needed for the PTY targets. The printed Minicom command
+suggests 1200 baud, but 110 or 300 can be selected in Minicom instead.
+Changing Minicom's speed **after** the ROM has negotiated does not reset
+the KIM-1 or re-run baud detection. Reboot the emulator to test another speed
+until the virtual Reset control is implemented. The startup message reports
+the PTY's actual termios rate. For example, Linux termios encoding `0x2`
+means 75 baud, not 110, and may indicate a Minicom configuration mismatch.
 
 With a trace window, `HOST received` shows the terminal's actual bytes;
 `RX` transitions show the resulting 6530 input pins. The original MOS
