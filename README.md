@@ -1,8 +1,14 @@
 # Apple 65C02 Processor Laboratory
 
 **Architecture Baseline:** 0.3 (frozen 2026-11-04)  
-**Status:** production CPU through c14; M1 final corpus gate pending.  
+**Status:** C41 CPU release candidate. The developer reports a successful
+`make validate-full` on 2026-11-18; repeat against the external corpora for
+independent release qualification. Local and original KIM-1 ROM checks pass.  
 **Language:** Go 1.16. **Target:** Apple IIe-compatible base CMOS 65C02 (no Rockwell bit operations or WAI/STP).
+
+The standalone CPU release contract, supported profile, deferred behaviors,
+reproducibility requirements, and validation evidence are summarized in
+[`docs/release-candidate-c41.md`](docs/release-candidate-c41.md).
 
 Read in this order:
 1. `docs/architecture-baseline-0.3.md` — frozen contracts and compatibility target.
@@ -12,8 +18,9 @@ Read in this order:
 
 The production engine lives in `internal/cpu`. All 256 Synertek-profile opcode
 bytes, cycle/microstep/instruction stepping, snapshots, and IRQ/NMI/RESET paths
-are implemented. See `review/production-c10.md` through `production-c14.md`
-for actual conformance evidence and remaining limitations.
+are implemented. The complete 256-entry table includes profile-specific NOP
+behavior, not 256 distinct documented CMOS instructions. See the release
+candidate note and earlier cut reviews for conformance evidence and limits.
 
 ## Local conformance corpuses
 
@@ -46,7 +53,9 @@ The selected Synertek test set remains the default bus/cycle oracle and
 Dormann complements it with semantic and interrupt testing. Deliberate
 compatibility deviations must be documented rather than silently introduced.
 
-The eventual Visible Computer/Wails UI and complete Apple IIe host are not part of the initial headless CPU milestone.
+The Visible Computer browser view and KIM-1 validation host now exist, but
+neither is part of the standalone CPU correctness contract. Full-system
+reversal and a complete Apple IIe host remain future work.
 
 ## KIM-1 ROM verification
 

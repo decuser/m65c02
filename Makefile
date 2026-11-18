@@ -115,13 +115,17 @@ bench:
 baseline:
 	@mkdir -p '$(OUT)'
 	@set -eu; \
+	missing=$$(git ls-files --deleted); \
+	if [ -n "$$missing" ]; then \
+		echo 'baseline: tracked files missing from working tree:'; \
+		printf '%s\n' "$$missing"; exit 1; \
+	fi; \
 	name='$(PROJECT)-baseline-$(VERSION)'; \
 	out=$$(cd '$(OUT)' && pwd)/$$name.tar.gz; \
 	git_exclude=''; \
 	if [ '$(INCLUDE_GIT)' = 0 ]; then git_exclude='--exclude=$(PROJECT)/.git'; fi; \
 	cd ..; \
 	tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-		--exclude='$(PROJECT)/*.tar.gz' \
 		--exclude='$(PROJECT)/.cache' --exclude='$(PROJECT)/coverage.out' \
 		--exclude='$(PROJECT)/*.prof' --exclude='$(PROJECT)/*.test' \
 		--exclude='$(PROJECT)/dist' \
