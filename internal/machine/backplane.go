@@ -55,6 +55,9 @@ func (b *Backplane) Map(start, end uint16, device Device) error {
 	if device == nil || end < start {
 		return errors.New("invalid device range")
 	}
+	if sized, ok := device.(Sized); ok && uint32(end)-uint32(start)+1 > sized.Size() {
+		return errors.New("mapping exceeds device capacity")
+	}
 	for _, r := range b.regions {
 		if start <= r.end && end >= r.start {
 			return errors.New("overlapping device range")
