@@ -36,18 +36,6 @@ fmt:
 	else echo 'fmt: no Go packages yet'; fi
 
 validate: build vet test
-	@if [ -n "$${M65C02_CORPUS:-}" ]; then \
-		echo 'validate: selected Synertek corpus supplied; results above'; \
-	else echo 'validate: selected Synertek corpus unavailable (set M65C02_CORPUS)'; fi
-	@if [ -n "$${M65C02_DORMANN:-}" ]; then \
-		echo 'validate: Dormann documented 6502 binary supplied; result above'; \
-	else echo 'validate: Dormann functional binary unavailable (set M65C02_DORMANN)'; fi
-	@if [ -n "$${M65C02_DORMANN_EXTENDED:-}" ]; then \
-		echo 'validate: profile-configured Dormann 65C02 binary supplied; result above'; \
-	else echo 'validate: Dormann 65C02 profile binary unavailable (set M65C02_DORMANN_EXTENDED)'; fi
-	@if [ -n "$${M65C02_DORMANN_INTERRUPT:-}" ]; then \
-		echo 'validate: CMOS Dormann interrupt binary supplied; result above'; \
-	else echo 'validate: Dormann CMOS interrupt binary unavailable (set M65C02_DORMANN_INTERRUPT)'; fi
 
 # Full M1 external gate. All three Dormann fixtures are required.
 validate-full: build vet test
