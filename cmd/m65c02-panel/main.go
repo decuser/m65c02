@@ -43,6 +43,7 @@ type panelState struct {
 	Powered       bool         `json:"powered"`
 	AwaitingReset bool         `json:"awaitingReset"`
 	TTY           bool         `json:"tty"`
+	SST           bool         `json:"sst"`
 	Active        int          `json:"active"`
 	Segments      byte         `json:"segments"`
 	LastScan      [6]byte      `json:"lastScan"`
@@ -90,6 +91,7 @@ func (p *panelServer) powerOn() error {
 	// External connector wiring remains attached across power cycles.
 	if p.kim != nil {
 		k.TTYSelect = p.kim.TTYSelect
+		k.SST = p.kim.SST
 	}
 	p.kim = k
 	p.powered = true
@@ -147,7 +149,7 @@ func (p *panelServer) routes() http.Handler {
 		p.mu.Lock()
 		s := panelState{
 			Cycles: p.kim.Bus.Cycles, PC: p.kim.CPU.View().PC,
-			Running: p.running, Powered: p.powered, AwaitingReset: p.awaitingReset, TTY: p.kim.TTYSelect,
+			Running: p.running, Powered: p.powered, AwaitingReset: p.awaitingReset, TTY: p.kim.TTYSelect, SST: p.kim.SST,
 			Active: p.kim.Panel.Current.Digit, Segments: p.kim.Panel.Current.SegmentBits,
 			LastScan: p.kim.Panel.LastScan, Dwell: p.kim.Panel.Dwell,
 		}
@@ -236,6 +238,8 @@ func (p *panelServer) routes() http.Handler {
 			}
 		case "TTY":
 			p.kim.TTYSelect = q.Down
+		case "SST":
+			p.kim.SST = q.Down
 		case "PAUSE":
 			if p.awaitingReset {
 				http.Error(w, "press RS to initialize", 409)

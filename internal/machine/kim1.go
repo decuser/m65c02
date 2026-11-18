@@ -17,6 +17,7 @@ type KIM1 struct {
 	Serial             *KIMSerial
 	Panel              *KIMFrontPanel
 	TTYSelect          bool
+	SST                bool
 }
 
 // NewKIM1 takes raw, 1024-byte 6530-002 and 6530-003 ROM images.
@@ -53,6 +54,7 @@ func NewKIM1(rom002, rom003 []byte) (*KIM1, error) {
 	bus.ConnectClock(panel)
 	k := &KIM1{Machine: machine, RAM: ram, RRIOT002: a, RRIOT003: b, Panel: panel}
 	board.jumpers = k
+	bus.ConnectInterrupt(&kimSingleStep{kim: k})
 	k.ResetCPU()
 	return k, nil
 }
@@ -84,6 +86,17 @@ func (k *KIM1) ReleaseReset() { k.Bus.Reset = false; k.CPU.SetLines(false, false
 // ST is a separate active-low front-panel switch wired to the CPU NMI line.
 func (k *KIM1) PressStop()   { k.Bus.NMI = true }
 func (k *KIM1) ReleaseStop() { k.Bus.NMI = false }
+
+// The original SST circuit combines opcode SYNC with a ROM inhibit gate
+// before driving NMI. This is a hardware signal, not a host CPU step call.
+type kimSingleStep struct{ kim *KIM1 }
+
+func (s *kimSingleStep) Interrupts() (bool, bool) {
+	req := s.kim.Bus.LastRequest
+	// The two 6530 ROM banks inhibit the SST pulse (including mirrors).
+	inROM := req.Address&0x1c00 == 0x1800 || req.Address&0x1c00 == 0x1c00
+	return false, s.kim.SST && req.Sync && !inROM
+}
 
 // ConnectSerial attaches the KIM-1 TTY wiring to the 6530-002 and clock.
 // Call once, before stepping the machine.

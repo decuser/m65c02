@@ -38,6 +38,7 @@ type Backplane struct {
 	Floating         byte
 	Ready            bool
 	IRQ, NMI, Reset  bool
+	LastRequest      cpu.Request
 }
 
 func NewBackplane() *Backplane { return &Backplane{Floating: 0xff, Ready: true} }
@@ -70,6 +71,7 @@ func (b *Backplane) Map(start, end uint16, device Device) error {
 // Transfer is the only bus interaction exposed to the CPU. Device callbacks
 // happen once per Resolve, independent of how many teaching microsteps occur.
 func (b *Backplane) Transfer(req cpu.Request) cpu.Response {
+	b.LastRequest = req
 	in := b.Floating
 	for _, r := range b.regions {
 		if req.Address >= r.start && req.Address <= r.end {

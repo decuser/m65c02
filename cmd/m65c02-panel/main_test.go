@@ -25,6 +25,7 @@ func TestPanelPowerCycleClearsVolatileRAM(t *testing.T) {
 	p.ramMode = "zero"
 	p.kim.RAM.Write(0x200, 0xa9)
 	postPanel(t, p, "/api/control", `{"control":"TTY","down":true}`, 204)
+	postPanel(t, p, "/api/control", `{"control":"SST","down":true}`, 204)
 	postPanel(t, p, "/api/control", `{"control":"POWER","down":false}`, 204)
 	if p.powered || p.running {
 		t.Fatal("power off must stop machine")
@@ -32,7 +33,7 @@ func TestPanelPowerCycleClearsVolatileRAM(t *testing.T) {
 	postPanel(t, p, "/api/key", `{"key":"A","down":true}`, 409)
 	postPanel(t, p, "/api/control", `{"control":"STEP","down":true}`, 409)
 	postPanel(t, p, "/api/control", `{"control":"POWER","down":true}`, 204)
-	if !p.powered || p.running || !p.awaitingReset || !p.kim.TTYSelect {
+	if !p.powered || p.running || !p.awaitingReset || !p.kim.TTYSelect || !p.kim.SST {
 		t.Fatal("power on failed or lost external wiring")
 	}
 	if got := p.kim.RAM.Read(0x200); got != 0 {
@@ -119,8 +120,12 @@ func TestPanelRoutesAndHardwareControls(t *testing.T) {
 	postPanel(t, p, "/api/key", `{"key":"A","down":false}`, 204)
 	postPanel(t, p, "/api/key", `{"key":"NOT-A-KEY","down":true}`, 400)
 	postPanel(t, p, "/api/control", `{"control":"TTY","down":true}`, 204)
+	postPanel(t, p, "/api/control", `{"control":"SST","down":true}`, 204)
 	if !p.kim.TTYSelect {
 		t.Fatal("TTY jumper not applied")
+	}
+	if !p.kim.SST {
+		t.Fatal("SST switch not applied")
 	}
 	postPanel(t, p, "/api/control", `{"control":"ST","down":true}`, 204)
 	if !p.kim.Bus.NMI {

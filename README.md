@@ -139,7 +139,7 @@ the 6530 pins are multiplexed; use the dwell observations instead.
 
 ## Virtual serial port for Minicom (c24)
 
-## Visual KIM-1 front panel (c27–c28)
+## Visual KIM-1 front panel (c27–c29)
 
 The front panel now has an interactive local browser view backed by the
 cycle-driven C26 hardware model. Put both original `6530-002.bin` and
@@ -176,8 +176,13 @@ changes between power cycles; this is not a measured physical SRAM model.
 Use `PANEL_RAM_MODE=zero` for deterministic zero-filled RAM, and optionally
 `PANEL_RAM_SEED=<integer>` to choose a different synthetic device pattern.
 The six LEDs are scaled to the compact keypad and maintain the 4+2 spacing.
-The SST slide switch is to the right of GO, ST and RS, with OFF at the left
-and ON at the right, but remains disabled until electrically modeled.
+The SST slide switch is to the right of GO, ST and RS, with the SST label
+at its right position. C29 connects its position to the CPU's opcode-fetch
+SYNC and the original KIM-1 ROM inhibit gate: each user instruction's fetch
+causes an NMI after that instruction, and monitor ROM fetches do not trigger
+SST. Set the NMI vector at `$17FA–$17FB` to `$1C00` (bytes `00 1C`) before
+using SST, as required by the original KIM-1 manual. Turn SST on, select the
+user program address, and press GO once per instruction.
 Instrument mode shows bus
 cycle count, CPU PC, active digit, segment lines, and recent dwell.
 Pause stops the CPU clock; Step Cycle advances exactly one cycle. When paused,

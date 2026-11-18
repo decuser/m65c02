@@ -9,6 +9,14 @@
 * { box-sizing: border-box; }
 body { margin: 0; padding: 28px 16px 70px; }
 .shell { max-width: 1020px; margin: auto; }
+.panel-stage { position:relative; }
+.sticky-note { position:absolute; top:30px; left:calc(50% + 320px); width:185px; padding:17px 13px 19px; background:#f7e693; color:#38321d; transform:rotate(1.5deg); box-shadow:3px 8px 14px #0008; font:12px/1.5 monospace; z-index:2; }
+.sticky-note[hidden] { display:none; }
+.sticky-note::before { content:''; position:absolute; top:0; left:0; right:0; height:15px; background:#e9d57a; }
+.sticky-note h2 { font:700 13px monospace; margin:11px 0 12px; }
+.sticky-note h3 { font:700 11px monospace; margin:15px 0 5px; border-bottom:1px solid #887a47; }
+.sticky-note pre { font:11px/1.6 monospace; margin:0; white-space:pre; }
+@media(max-width:1050px) { .sticky-note { position:relative; top:auto; left:auto; margin:18px auto; width:220px; transform:rotate(.5deg); } }
 header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px; align-items:center; margin-bottom:20px; }
 h1 { font-size:24px; font-weight:750; letter-spacing: .06em; margin:0; }
 .eyebrow { color:#9aa993; letter-spacing:.2em; font-size:11px; text-transform:uppercase; margin-bottom:5px; }
@@ -38,6 +46,7 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
 .key.switch { position:relative; background:linear-gradient(#6f795b,#465741); color:#f3e7c5; font-size:9px; padding:0 2px; display:flex; align-items:flex-end; justify-content:space-around; padding-bottom:3px; }
 .key.switch::before { content:''; position:absolute; top:5px; left:22%; width:56%; height:11px; background:#192a24; border:1px solid #aab29a; border-radius:7px; }
 .key.switch::after { content:''; position:absolute; top:3px; left:20%; height:15px; width:13px; background:linear-gradient(#e5d9ad,#948360); border:1px solid #514733; border-radius:4px; }
+.key.switch.on::after { left:auto; right:20%; }
 .key:disabled { cursor:not-allowed; opacity:.68; }
 .power { border:2px solid #b89c72; background:#3d342b; color:#eee0b3; border-radius:7px; padding:8px 12px; font:bold 12px monospace; letter-spacing:.08em; }
 .power.on { background:#56663c; border-color:#b8cc83; }
@@ -72,6 +81,7 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
 <body>
 <main class="shell">
   <header><div><div class="eyebrow">MOS Technology / 1976</div><h1>KIM-1 <span style="font-weight:300;color:#a9b6a5">Front Panel</span></h1></div><div class="tag">REAL ROM · CYCLE-DRIVEN I/O</div></header>
+  <div class="panel-stage">
   <section class="board" aria-label="KIM-1 simulated circuit board">
     <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
     <div class="topline"><div class="silkscreen">KIM-1<br><span style="font-size:10px;letter-spacing:.1em">MICROCOMPUTER</span></div><button id="power" class="power on" aria-pressed="true"><span class="power-indicator"></span>POWER ON</button></div>
@@ -79,12 +89,29 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
     <div class="hex-caption">ADDRESS · DATA</div>
     <div class="lower"><div id="keys" class="keys" aria-label="KIM-1 keypad"></div></div>
   </section>
+  <aside id="stickyNote" class="sticky-note" hidden aria-label="KIM-1 quick reference">
+    <h2>KIM-1 CHEAT SHEET</h2>
+    <h3>SET AFTER POWER ON</h3>
+    <pre>17FA  00  NMI → 1C00
+17FB  1C
+17FE  00  IRQ → 1C00
+17FF  1C</pre>
+    <h3>SAVED REGISTERS</h3>
+    <pre>00EF  PC low
+00F0  PC high
+00F1  P
+00F2  SP
+00F3  A
+00F4  Y
+00F5  X</pre>
+  </aside>
+  </div>
   <section class="external" aria-label="External KIM-1 wiring">
     <div class="aside-label">EXTERNAL CONNECTIONS · APPLICATION CONNECTOR A</div>
     <div class="switchrow"><span class="silkscreen" style="font-size:12px">A-21 ↔ A-V · TTY SELECT</span><button id="tty" class="toggle" aria-pressed="false">OPEN · KEYPAD</button></div>
     <div class="hint">OPEN: original keypad and LEDs. CLOSED: external serial terminal. This represents the optional wire, clip lead, or switch on the application connector, not a built-in KIM-1 control. After selecting TTY, reset the machine and start the terminal with RUBOUT.</div>
   </section>
-  <div class="footer"><div class="tools"><button id="instrumentToggle" class="tool">INSTRUMENT MODE</button><button id="pause" class="tool">PAUSE</button><button id="step" class="tool">STEP CYCLE</button></div><div class="status" id="status">Connecting to KIM-1…</div></div>
+  <div class="footer"><div class="tools"><button id="noteToggle" class="tool" aria-pressed="false">📝 STICKY NOTE</button><button id="instrumentToggle" class="tool">INSTRUMENT MODE</button><button id="pause" class="tool">PAUSE</button><button id="step" class="tool">STEP CYCLE</button></div><div class="status" id="status">Connecting to KIM-1…</div></div>
   <section id="instrument" class="instrument" hidden aria-label="Cycle-level instrumentation"><div class="eyebrow">Cycle-accurate hardware view</div><div class="meter-grid"><div class="meter"><label>CPU CYCLES</label><b id="cycles">0</b></div><div class="meter"><label>PROGRAM COUNTER</label><b id="pc">$0000</b></div><div class="meter"><label>ACTIVE DIGIT</label><b id="active">none</b></div><div class="meter"><label>SEGMENT LINES PA0–6</label><b id="segments">0000000</b></div></div><div id="dwell" class="dwell"></div><p class="hint">Bars measure recent segment-on time derived from the 6530 pin-level scan. When paused, the display shows the active scan position.</p></section>
 </main>
 <script>
@@ -125,7 +152,7 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
   }
   keyRows.flat().forEach(name=>{
     const b=document.createElement('button');b.className='key'+(name.length>1?' fn':'');b.textContent=name==='SST'?'ON/OFF':name;
-    if(name==='SST') { b.classList.add('switch');b.innerHTML='<span>OFF</span><span>ON</span>';b.disabled=true;b.title='SST switch is OFF (left); single-step hardware comes in C29'; }
+    if(name==='SST') { b.id='sst';b.classList.add('switch');b.innerHTML='<span></span><span>SST</span>';b.title='Single-step switch (right = ON)';b.setAttribute('aria-pressed','false');b.onclick=()=>post('/api/control',{control:'SST',down:!sst}); }
     else if(name==='ST'||name==='RS') {b.dataset.control=name;momentary(b,name,true);}
     else {b.dataset.key=name;momentary(b,name,false);}
     keys.appendChild(b);
@@ -139,18 +166,20 @@ button { touch-action:none; cursor:pointer; user-select:none; font-family:inheri
   });
   document.addEventListener('keyup',e=>{const name=heldKeyboard.get(e.code);if(name){heldKeyboard.delete(e.code);changeKey(name,false);}});
   window.addEventListener('blur',()=>{for(const key of [...held])changeKey(key,false);for(const b of document.querySelectorAll('[data-control].pressed')){b.classList.remove('pressed');post('/api/control',{control:b.dataset.control,down:false});}heldKeyboard.clear();});
-  let tty=false, running=false, powered=true, awaitingReset=true, instrument=false, previous=null, brightness=Array.from({length:6},()=>Array(7).fill(0));
+  let tty=false, sst=false, running=false, powered=true, awaitingReset=true, instrument=false, previous=null, brightness=Array.from({length:6},()=>Array(7).fill(0));
   document.getElementById('power').onclick=()=>post('/api/control',{control:'POWER',down:!powered});
   document.getElementById('tty').onclick=()=>{tty=!tty;post('/api/control',{control:'TTY',down:tty});renderTTY();};
   function renderTTY(){const b=document.getElementById('tty');b.classList.toggle('on',tty);b.textContent=tty?'CLOSED · TTY':'OPEN · KEYPAD';b.setAttribute('aria-pressed',String(tty));}
   document.getElementById('instrumentToggle').onclick=()=>{instrument=!instrument;document.getElementById('instrument').hidden=!instrument;};
+  document.getElementById('noteToggle').onclick=()=>{const note=document.getElementById('stickyNote');note.hidden=!note.hidden;document.getElementById('noteToggle').setAttribute('aria-pressed',String(!note.hidden));};
   document.getElementById('pause').onclick=()=>{if(!powered||awaitingReset)return;post('/api/control',{control:'PAUSE',down:running});running=!running;document.getElementById('pause').textContent=running?'PAUSE':'RESUME';};
   document.getElementById('step').onclick=()=>{if(powered&&!awaitingReset)post('/api/control',{control:'STEP',down:true});};
   const dwell=document.getElementById('dwell');
   for(let d=0;d<6;d++){const c=document.createElement('div');c.className='dwell-cell';c.innerHTML='DIGIT '+(d+1)+'<div class="bar"><span></span></div>';dwell.appendChild(c);}
   const bars=[...dwell.querySelectorAll('.bar span')];
   function paint(s){
-    tty=s.tty;running=s.running;powered=s.powered;awaitingReset=s.awaitingReset;renderTTY();document.getElementById('pause').textContent=running?'PAUSE':'RESUME';
+    tty=s.tty;sst=s.sst;running=s.running;powered=s.powered;awaitingReset=s.awaitingReset;renderTTY();document.getElementById('pause').textContent=running?'PAUSE':'RESUME';
+    document.getElementById('sst').classList.toggle('on',sst);document.getElementById('sst').setAttribute('aria-pressed',String(sst));
     document.getElementById('pause').disabled=!powered||awaitingReset;document.getElementById('step').disabled=!powered||awaitingReset;
     const powerButton=document.getElementById('power');powerButton.classList.toggle('on',powered);powerButton.setAttribute('aria-pressed',String(powered));powerButton.lastChild.textContent=powered?'POWER ON':'POWER OFF';
     if(!powered || awaitingReset || (previous&&s.cycles<previous.cycles)) {brightness=Array.from({length:6},()=>Array(7).fill(0));previous=null;}
