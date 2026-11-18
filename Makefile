@@ -50,7 +50,7 @@ validate-kim1:
 	@test -f '$(KIM_ROM003)' || { echo 'validate-kim1: missing $(KIM_ROM003)'; exit 1; }
 	@M65C02_KIM_ROM002='$(abspath $(KIM_ROM002))' \
 	 M65C02_KIM_ROM003='$(abspath $(KIM_ROM003))' \
-	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor|PTYAt1200Baud)|TestPTYReadsClientBaud)$$' -count=1 -v
+	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor|PTYAt1200Baud)|TestKIMFrontPanelOriginalROMScansDigits|TestPTYReadsClientBaud)$$' -count=1 -v
 
 # Run a temporary compiled executable directly. This lets its SIGINT handler
 # exit normally, instead of go run reporting an interrupted child as an error.

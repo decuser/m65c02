@@ -9,12 +9,13 @@ import (
 
 // KIM1 assembles the original 1 KiB RAM and two mask-programmed 6530s.
 // The board's 8 KiB selection pattern repeats through the 64 KiB CPU space.
-// Display, keypad, cassette and serial circuitry are separate future devices.
+// The front panel and serial circuits are separate clocked components.
 type KIM1 struct {
 	*Machine
 	RAM                *RAM
 	RRIOT002, RRIOT003 *RRIOT
 	Serial             *KIMSerial
+	Panel              *KIMFrontPanel
 	TTYSelect          bool
 }
 
@@ -48,7 +49,9 @@ func NewKIM1(rom002, rom003 []byte) (*KIM1, error) {
 	if err != nil {
 		return nil, err
 	}
-	k := &KIM1{Machine: machine, RAM: ram, RRIOT002: a, RRIOT003: b}
+	panel := NewKIMFrontPanel(a)
+	bus.ConnectClock(panel)
+	k := &KIM1{Machine: machine, RAM: ram, RRIOT002: a, RRIOT003: b, Panel: panel}
 	board.jumpers = k
 	k.ResetCPU()
 	return k, nil
@@ -71,11 +74,16 @@ func NewKIM1FromFiles(path002, path003 string) (*KIM1, error) {
 func (k *KIM1) ResetCPU() {
 	k.RRIOT002.Reset()
 	k.RRIOT003.Reset()
+	k.Panel.Current = LEDScan{Digit: -1}
 	k.Bus.Reset = true
 	k.CPU.SetLines(false, false, true)
 }
 
 func (k *KIM1) ReleaseReset() { k.Bus.Reset = false; k.CPU.SetLines(false, false, false) }
+
+// ST is a separate active-low front-panel switch wired to the CPU NMI line.
+func (k *KIM1) PressStop()   { k.Bus.NMI = true }
+func (k *KIM1) ReleaseStop() { k.Bus.NMI = false }
 
 // ConnectSerial attaches the KIM-1 TTY wiring to the 6530-002 and clock.
 // Call once, before stepping the machine.
@@ -98,13 +106,10 @@ type kim1Decoder struct {
 // A closed TTY-select jumper makes a keyboard-matrix contact, not an
 // unconditional port bit or a software boot-mode switch.
 func (b *kim1Decoder) updateJumper() {
-	value, mask := b.chip002.OutputB()
-	row3 := (mask&0x1e) == 0x1e && (value>>1)&0x0f == 3
-	input := b.chip002.input[0] | 1
-	if b.jumpers != nil && b.jumpers.TTYSelect && row3 {
-		input &^= 1
+	if b.jumpers != nil {
+		b.jumpers.Panel.TTY = b.jumpers.TTYSelect
+		b.jumpers.Panel.UpdateInputs()
 	}
-	b.chip002.SetInputA(input)
 }
 
 func (b *kim1Decoder) Read(addr uint16) byte {

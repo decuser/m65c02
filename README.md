@@ -109,6 +109,22 @@ cycle still executes. Host input is buffered and injected as serial frames
 after the initial monitor greeting. The keyboard currently uses `stty` on
 Linux, and the first input window is calibrated for 110 baud at 1 MHz.
 
+## KIM-1 front-panel electrical model (c26)
+
+The original keypad/display circuitry is now an independent clocked
+`KIMFrontPanel`, attached to the same 6530-002 pins that the ROM accesses.
+Its 74145 decoder uses PB1..PB4 to select keypad rows 0..2, the TTY jumper
+on row 3, or LED digits 0..5 on decoder outputs 4..9. PA0..PA6 carry the
+seven shared columns/segments; serial PA7 and PB0 remain independent.
+The 21 matrix keys can be held/released with `Panel.SetKey(name, pressed)`;
+ST maps to `PressStop`/`ReleaseStop` on NMI and RS uses
+`ResetCPU`/`ReleaseReset`.
+
+The `Current` electrical digit/segment selection, `LastScan` per digit,
+and cycle-accumulating `Dwell` counters are observable without any GUI.
+The original ROM is verified to scan all six digits in keypad mode.
+This cut does not yet include clickable controls or an LED renderer.
+
 ## Virtual serial port for Minicom (c24)
 
 On Linux, start the emulator in the existing terminal:
