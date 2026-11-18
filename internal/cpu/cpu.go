@@ -29,25 +29,28 @@ type Request struct {
 	Write, Sync bool
 }
 type Response struct {
-	DataIn byte
-	Ready  bool
+	DataIn          byte
+	Ready           bool
+	IRQ, NMI, Reset bool
 }
 type Bus interface{ Transfer(Request) Response }
 
 type State struct {
-	A, X, Y, S, P, IR               byte
-	PC                              uint16
-	AD                              uint16
-	DO, DL, Lo, Hi, Operand, Offset byte
-	Base, EA                        uint16
-	Taken                           bool
-	Phase                           Phase
-	Stage, Entry, OpIndex           uint8
-	Pending                         Request
-	PendingValid                    bool
-	Reply                           Response
-	ReplyValid                      bool
-	Cycles, Instructions            uint64
+	A, X, Y, S, P, IR                    byte
+	PC                                   uint16
+	AD                                   uint16
+	DO, DL, Lo, Hi, Operand, Offset      byte
+	Base, EA                             uint16
+	Taken                                bool
+	Phase                                Phase
+	Stage, Entry, OpIndex                uint8
+	Pending                              Request
+	PendingValid                         bool
+	Reply                                Response
+	ReplyValid                           bool
+	Cycles, Instructions                 uint64
+	Control                              uint8 // 0=instruction, 1=IRQ, 2=NMI, 3=RESET
+	IRQ, NMI, NMISeen, NMIPending, Reset bool
 }
 type CPU struct{ state State }
 
@@ -58,7 +61,7 @@ func New(pc uint16) *CPU {
 }
 func (c *CPU) Snapshot() State { return c.state }
 func (c *CPU) Restore(s State) error {
-	if s.Phase > PostBus || s.Stage > 7 || s.Entry >= entryCount {
+	if s.Phase > PostBus || s.Stage > 7 || s.Entry >= entryCount || s.Control > 3 {
 		return errors.New("invalid cursor")
 	}
 	if s.Phase == Resolve && !s.PendingValid {
@@ -73,7 +76,7 @@ func (c *CPU) Restore(s State) error {
 	if s.OpIndex > maxOps {
 		return errors.New("invalid operation index")
 	}
-	if s.Stage == 0 && s.Entry != 0 {
+	if s.Control == 0 && s.Stage == 0 && s.Entry != 0 {
 		return errors.New("fetch stage with non-fetch entry")
 	}
 	c.state = s
@@ -120,6 +123,8 @@ const (
 	opDOOperand
 	opExtPrepare
 	opExtCommit
+	opControlPrepare
+	opControlCommit
 )
 const maxOps = 5
 
@@ -173,6 +178,8 @@ var brkPushLo = cycle([]opCode{opADStack, opDOPCL}, []opCode{opDECS}, true, fals
 var brkPushP = cycle([]opCode{opADStack, opDOP}, []opCode{opDECS, opSetIClrD}, true, false, "BRK stack flags")
 var brkVectorLo = cycle([]opCode{opADVectorLo}, []opCode{opDLLo}, false, false, "IRQ vector low")
 var brkVectorHi = cycle([]opCode{opADVectorHi}, []opCode{opDLHi, opPCFromHiLo}, false, false, "IRQ vector high")
+var controlRead = cycle([]opCode{opControlPrepare}, []opCode{opControlCommit}, false, false, "Interrupt/reset read")
+var controlWrite = cycle([]opCode{opControlPrepare}, []opCode{opControlCommit}, true, false, "Interrupt stack push")
 
 // Each ID names a static immutable cycle entry. Selection is frozen for the
 // entire physical cycle, including all post-bus microoperations.
@@ -200,6 +207,8 @@ const (
 	entryBRKVectorHi
 	entryExtendedRead
 	entryExtendedWrite
+	entryControlRead
+	entryControlWrite
 	entryCount
 )
 
@@ -207,11 +216,17 @@ var entries = [entryCount]entry{
 	fetch, immediate, operandLow, indexedHigh, indexedDummy, indexedRead,
 	indexedWrite, rmwRead, rmwDummy, rmwWrite, nopDummy, jumpHi,
 	branchOffset, branchDummy, branchCross, brkSignature, brkPushHi,
-	brkPushLo, brkPushP, brkVectorLo, brkVectorHi, extendedRead, extendedWrite,
+	brkPushLo, brkPushP, brkVectorLo, brkVectorHi, extendedRead, extendedWrite, controlRead, controlWrite,
 }
 
 func (c *CPU) chooseEntry() (uint8, error) {
 	s := &c.state
+	if s.Control != 0 {
+		if s.Control != 3 && s.Stage >= 2 && s.Stage <= 4 {
+			return entryControlWrite, nil
+		}
+		return entryControlRead, nil
+	}
 	if s.Stage == 0 {
 		return entryFetch, nil
 	}
@@ -361,6 +376,10 @@ func (c *CPU) operate(op opCode) {
 		c.extPrepare()
 	case opExtCommit:
 		c.extCommit()
+	case opControlPrepare:
+		c.controlPrepare()
+	case opControlCommit:
+		c.controlCommit()
 	}
 }
 func (c *CPU) setNZ(v byte) {
@@ -400,6 +419,24 @@ func (c *CPU) selectEntry() error {
 func (c *CPU) current() *entry { return &entries[c.state.Entry] }
 func (c *CPU) endCycle() error {
 	s := &c.state
+	if s.Control != 0 {
+		s.Cycles++
+		if s.Stage == 6 {
+			s.Control = 0
+			s.Stage = 0
+			s.Instructions++
+		} else {
+			s.Stage++
+		}
+		s.PendingValid, s.ReplyValid = false, false
+		s.Phase, s.OpIndex = PreBus, 0
+		if s.Control == 0 {
+			return c.selectEntry()
+		}
+		id, _ := c.chooseEntry()
+		s.Entry, s.AD, s.DO = id, 0, 0
+		return nil
+	}
 	done := false
 	switch s.IR {
 	case 0x03:
@@ -432,7 +469,16 @@ func (c *CPU) endCycle() error {
 	s.OpIndex = 0
 	s.Phase = PreBus
 	if done {
+		if c.beginControl() {
+			return c.selectEntry()
+		}
 		return c.selectEntry()
+	}
+	// RESET abandons the current instruction at the next cycle boundary.
+	if s.Reset {
+		if c.beginControl() {
+			return c.selectEntry()
+		}
 	}
 	id, err := c.chooseEntry()
 	if err != nil {
@@ -477,6 +523,7 @@ func (c *CPU) StepMicro(b Bus) (MicroEvent, error) {
 			return MicroEvent{}, errors.New("no pending bus transaction")
 		}
 		s.Reply = b.Transfer(s.Pending)
+		c.sampleLines(s.Reply)
 		s.ReplyValid = true
 		if !s.Reply.Ready && !s.Pending.Write {
 			s.Cycles++
