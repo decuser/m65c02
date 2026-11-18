@@ -14,8 +14,12 @@ KIM_CYCLES ?= 0
 KIM_BIT_CYCLES ?= 9091
 KIM_INPUT ?=
 KIM_CONFIG ?= machines/kim1.toml
+PANEL_ADDR ?= 127.0.0.1:6580
+PANEL_OPEN ?= 1
+PANEL_RAM_MODE ?= device
+PANEL_RAM_SEED ?= 1263095089
 
-.PHONY: all build test validate validate-full validate-kim1 run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace bench vet fmt baseline clean help
+.PHONY: all build test validate validate-full validate-kim1 run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace run-kim1-panel bench vet fmt baseline clean help
 
 all: test
 
@@ -50,7 +54,7 @@ validate-kim1:
 	@test -f '$(KIM_ROM003)' || { echo 'validate-kim1: missing $(KIM_ROM003)'; exit 1; }
 	@M65C02_KIM_ROM002='$(abspath $(KIM_ROM002))' \
 	 M65C02_KIM_ROM003='$(abspath $(KIM_ROM003))' \
-	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor|PTYAt1200Baud)|TestKIMFrontPanelOriginalROMScansDigits|TestPTYReadsClientBaud)$$' -count=1 -v
+	 $(GO) test ./internal/machine -run '^(TestKIM1(RealMonitorROM|TTYBoot|TTYInputAfterPrompt|PTYOriginalMonitor|PTYAt1200Baud)|TestKIMFrontPanelOriginalROM(ScansDigits|ResetRestoresDisplay)|TestPTYReadsClientBaud)$$' -count=1 -v
 
 # Run a temporary compiled executable directly. This lets its SIGINT handler
 # exit normally, instead of go run reporting an interrupted child as an error.
@@ -65,6 +69,17 @@ run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace:
 		-input '$(KIM_INPUT)' $(if $(filter 0,$(KIM_CYCLES)),$(if $(filter run-kim1 run-kim1-trace,$@),-live,),) \
 		$(if $(filter run-kim1-pty run-kim1-pty-trace,$@),-pty,) \
 		$(if $(filter run-kim1-trace run-kim1-pty-trace,$@),-trace-window,)
+
+# C28: KIM-1 panel with separate cold power and RS, plus RAM start policy.
+# Hosts a local panel page; xdg-open launches it in the default browser.
+run-kim1-panel:
+	@test -f '$(KIM_ROM002)' || { echo '$@: missing $(KIM_ROM002)'; exit 1; }
+	@test -f '$(KIM_ROM003)' || { echo '$@: missing $(KIM_ROM003)'; exit 1; }
+	@bin=$$(mktemp); trap 'rm -f "$$bin"' EXIT; \
+	 $(GO) build -o "$$bin" ./cmd/m65c02-panel && "$$bin" \
+		-config '$(KIM_CONFIG)' \
+		-rom002 '$(abspath $(KIM_ROM002))' -rom003 '$(abspath $(KIM_ROM003))' \
+		-addr '$(PANEL_ADDR)' -ram-mode '$(PANEL_RAM_MODE)' -ram-seed '$(PANEL_RAM_SEED)' $(if $(filter 0,$(PANEL_OPEN)),-open=false,)
 
 # Full M1 external gate. All three Dormann fixtures are required.
 validate-full: build vet test
@@ -125,6 +140,7 @@ help:
 		'run-kim1-trace: interactive KIM-1 with cycle-stamped serial trace' \
 		'run-kim1-pty: expose KIM-1 to Minicom via /dev/pts/N' \
 		'run-kim1-pty-trace: PTY serial port plus separate trace window' \
+		'run-kim1-panel: open original KIM-1 keypad and LED panel in a browser' \
 		'bench: run Go benchmarks' 'baseline: nested project source archive' \
 		'fmt: go fmt' 'clean: remove generated profiling files' \
         'run-prod: execute production CPU demonstration'

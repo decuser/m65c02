@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KIM-1 · Front Panel</title>
+<style>
+:root { font-family: system-ui, sans-serif; color: #eadbb3; background: #151b18; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px 16px 70px; }
+.shell { max-width: 1020px; margin: auto; }
+header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px; align-items:center; margin-bottom:20px; }
+h1 { font-size:24px; font-weight:750; letter-spacing: .06em; margin:0; }
+.eyebrow { color:#9aa993; letter-spacing:.2em; font-size:11px; text-transform:uppercase; margin-bottom:5px; }
+.tag { border:1px solid #576b56; padding:7px 11px; font-size:11px; letter-spacing:.1em; color:#c2cfbc; border-radius:20px; }
+.board { background:repeating-linear-gradient(90deg,transparent 0, transparent 44px,rgba(215,221,180,.022) 45px,transparent 46px),linear-gradient(160deg,#275b4c,#173d32 70%); border:9px solid #987c4e; border-radius:14px; padding:25px 32px 36px; box-shadow:0 30px 60px #0008,inset 0 0 0 2px #6c9a70; position:relative; max-width:620px; margin:0 auto; }
+.screw { position:absolute; width:15px; height:15px; border-radius:50%; background:radial-gradient(circle at 35% 35%,#bcae80,#403d31); box-shadow:inset 0 0 0 2px #2e3c33; }
+.screw:after { content:''; display:block; position:absolute; top:7px; left:2px; width:11px; height:1px; background:#342c21; transform:rotate(30deg); }
+.tl { top:10px; left:10px; } .tr { top:10px; right:10px; } .bl { bottom:10px; left:10px; } .br { bottom:10px; right:10px; }
+.silkscreen { color:#e6e8c6; font-family:monospace; font-size:13px; letter-spacing:.2em; }
+.topline { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; }
+.controls { display:flex; gap:12px; align-items:center; }
+.control { display:flex; flex-direction:column; align-items:center; gap:7px; font-size:11px; font-family:monospace; letter-spacing:.13em; }
+button { touch-action:none; cursor:pointer; user-select:none; font-family:inherit; }
+.push { width:48px; height:35px; border:3px solid #ad9d7c; border-radius:5px; background:linear-gradient(#ded0a9,#a98e62); box-shadow:0 4px 0 #62533a; font-weight:800; color:#332d20; }
+.push:active,.push.pressed { transform:translateY(3px); box-shadow:0 1px 0 #62533a; }
+.display-box { background:#131d18; border:5px solid #283429; border-radius:10px; width:min(100%,330px); margin:24px auto 16px; padding:14px 5px 9px; display:flex; gap:2px; justify-content:space-between; box-shadow:inset 0 0 28px #000b; }
+.digit { width:min(15%,53px); min-width:0; filter:drop-shadow(0 1px 1px #000); }
+.digit:nth-child(5) { margin-left:5%; }
+.segment { fill:#45211e; transition:fill 90ms,filter 90ms; }
+.hex-caption { text-align:center; margin-bottom:20px; color:#d9d3ae; font-family:monospace; letter-spacing:.4em; font-size:11px; }
+.lower { display:flex; justify-content:center; align-items:start; }
+.keys { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+.lower .keys { width:min(100%,260px); }
+.key { min-width:0; height:38px; padding:0 1ch; border:2px solid #8b7b59; border-radius:5px; background:linear-gradient(#dfd4ad,#bca77a); color:#22291d; font:bold 14px monospace; box-shadow:0 4px 0 #5e5b42,0 5px 7px #0006; }
+.key:active,.key.pressed { transform:translateY(4px); background:#dcc08c; box-shadow:0 1px 0 #5e5b42; }
+.key.fn { background:linear-gradient(#d3b87a,#947b4d); font-size:14px; }
+.key.switch { position:relative; background:linear-gradient(#6f795b,#465741); color:#f3e7c5; font-size:9px; padding:0 2px; display:flex; align-items:flex-end; justify-content:space-around; padding-bottom:3px; }
+.key.switch::before { content:''; position:absolute; top:5px; left:22%; width:56%; height:11px; background:#192a24; border:1px solid #aab29a; border-radius:7px; }
+.key.switch::after { content:''; position:absolute; top:3px; left:20%; height:15px; width:13px; background:linear-gradient(#e5d9ad,#948360); border:1px solid #514733; border-radius:4px; }
+.key:disabled { cursor:not-allowed; opacity:.68; }
+.power { border:2px solid #b89c72; background:#3d342b; color:#eee0b3; border-radius:7px; padding:8px 12px; font:bold 12px monospace; letter-spacing:.08em; }
+.power.on { background:#56663c; border-color:#b8cc83; }
+.power-indicator { display:inline-block; width:8px; height:8px; border-radius:50%; background:#5c4238; margin-right:8px; }
+.power.on .power-indicator { background:#b9f66a; box-shadow:0 0 9px #b9f66a; }
+.aside { padding:15px; background:#122c25b0; border:1px solid #79907570; border-radius:5px; min-height:192px; }
+.external { margin-top:16px; background:#202b25; border:1px solid #516756; border-radius:8px; padding:17px 20px; }
+.aside-label { font:11px monospace; letter-spacing:.14em; color:#bacaa8; margin-bottom:14px; }
+.switchrow { display:flex; gap:10px; align-items:center; justify-content:space-between; }
+.toggle { border:1px solid #aeaa84; border-radius:4px; background:#35433a; color:#f4e7bc; padding:9px 13px; font:bold 12px monospace; }
+.toggle.on { background:#ae925f; color:#172f27; }
+.hint { font-size:11px; line-height:1.6; color:#b5c4ae; margin-top:15px; }
+.footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-top:18px; }
+.tools { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
+.tool { background:#25382f; border:1px solid #5c765f; color:#e4eacb; border-radius:5px; padding:9px 13px; font-size:12px; }
+.tool:hover { background:#344f40; }
+.status { font:12px monospace; color:#a8c3ac; }
+.instrument { background:#111d18; border:1px solid #4b6854; border-radius:8px; padding:18px; margin-top:15px; }
+.instrument[hidden] { display:none; }
+.meter-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.meter { padding:10px; border:1px solid #384d40; border-radius:4px; }
+.meter label { display:block; font:10px monospace; color:#91a88f; letter-spacing:.1em; margin-bottom:9px; }
+.meter b { font:16px monospace; color:#e7e9c9; }
+.dwell { display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-top:14px; }
+.dwell-cell { background:#26382d; border-radius:4px; padding:8px; font:10px monospace; }
+.bar { height:4px; background:#4e302b; border-radius:3px; margin-top:10px; overflow:hidden; }
+.bar span { display:block; height:100%; width:0; background:#f36b4b; }
+.error { color:#ffad8e; }
+@media(max-width:680px) { .board { padding:25px 14px; border-width:5px; } .lower { grid-template-columns:1fr; } .keys { gap:5px; } .key { font-size:14px; height:46px; } .key.fn { font-size:10px; } .aside { min-height:0; } .meter-grid { grid-template-columns:repeat(2,1fr); } .display-box { padding:14px 4px; gap:1px; } }
+</style>
+</head>
+<body>
+<main class="shell">
+  <header><div><div class="eyebrow">MOS Technology / 1976</div><h1>KIM-1 <span style="font-weight:300;color:#a9b6a5">Front Panel</span></h1></div><div class="tag">REAL ROM · CYCLE-DRIVEN I/O</div></header>
+  <section class="board" aria-label="KIM-1 simulated circuit board">
+    <div class="screw tl"></div><div class="screw tr"></div><div class="screw bl"></div><div class="screw br"></div>
+    <div class="topline"><div class="silkscreen">KIM-1<br><span style="font-size:10px;letter-spacing:.1em">MICROCOMPUTER</span></div><button id="power" class="power on" aria-pressed="true"><span class="power-indicator"></span>POWER ON</button></div>
+    <div id="display" class="display-box" aria-label="Six hexadecimal seven-segment LED displays"></div>
+    <div class="hex-caption">ADDRESS · DATA</div>
+    <div class="lower"><div id="keys" class="keys" aria-label="KIM-1 keypad"></div></div>
+  </section>
+  <section class="external" aria-label="External KIM-1 wiring">
+    <div class="aside-label">EXTERNAL CONNECTIONS · APPLICATION CONNECTOR A</div>
+    <div class="switchrow"><span class="silkscreen" style="font-size:12px">A-21 ↔ A-V · TTY SELECT</span><button id="tty" class="toggle" aria-pressed="false">OPEN · KEYPAD</button></div>
+    <div class="hint">OPEN: original keypad and LEDs. CLOSED: external serial terminal. This represents the optional wire, clip lead, or switch on the application connector, not a built-in KIM-1 control. After selecting TTY, reset the machine and start the terminal with RUBOUT.</div>
+  </section>
+  <div class="footer"><div class="tools"><button id="instrumentToggle" class="tool">INSTRUMENT MODE</button><button id="pause" class="tool">PAUSE</button><button id="step" class="tool">STEP CYCLE</button></div><div class="status" id="status">Connecting to KIM-1…</div></div>
+  <section id="instrument" class="instrument" hidden aria-label="Cycle-level instrumentation"><div class="eyebrow">Cycle-accurate hardware view</div><div class="meter-grid"><div class="meter"><label>CPU CYCLES</label><b id="cycles">0</b></div><div class="meter"><label>PROGRAM COUNTER</label><b id="pc">$0000</b></div><div class="meter"><label>ACTIVE DIGIT</label><b id="active">none</b></div><div class="meter"><label>SEGMENT LINES PA0–6</label><b id="segments">0000000</b></div></div><div id="dwell" class="dwell"></div><p class="hint">Bars measure recent segment-on time derived from the 6530 pin-level scan. When paused, the display shows the active scan position.</p></section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const keyRows = [['GO','ST','RS','SST'],['AD','DA','PC','+'],['C','D','E','F'],['8','9','A','B'],['4','5','6','7'],['0','1','2','3']];
+  const keyNames = keyRows.flat().filter(name=>!['SST','ST','RS'].includes(name));
+  const polygons = [
+    '22,9 58,9 52,16 28,16', '61,12 67,18 63,44 57,49 55,43 57,20',
+    '61,56 67,61 63,87 57,93 55,86 57,63', '22,95 58,95 52,102 28,102',
+    '18,56 24,63 22,86 16,93 10,87 14,61', '18,12 24,20 22,43 16,49 10,44 14,18',
+    '22,51 28,47 52,47 58,51 52,55 28,55'];
+  const display = document.getElementById('display');
+  const ledSegments = [];
+  for (let d=0; d<6; d++) {
+    const wrapper=document.createElement('div'); wrapper.className='digit';
+    wrapper.innerHTML='<svg viewBox="0 0 80 112" width="100%" role="img" aria-label="digit '+(d+1)+'">'+polygons.map(p=>'<polygon class="segment" points="'+p+'"/>').join('')+'</svg>';
+    display.appendChild(wrapper);
+    ledSegments.push([...wrapper.querySelectorAll('polygon')]);
+  }
+  const keys = document.getElementById('keys');
+  const held = new Set();
+  async function post(path, data) {
+    try { const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); if(!r.ok) throw new Error(await r.text()); }
+    catch(e) { document.getElementById('status').textContent='CONTROL ERROR: '+e.message; document.getElementById('status').classList.add('error'); }
+  }
+  function changeKey(name,down) {
+    if(!powered&&down) return;
+    if(down===held.has(name)) return;
+    if(down) held.add(name); else held.delete(name);
+    const b=document.querySelector('[data-key="'+name+'"]'); if(b) b.classList.toggle('pressed',down);
+    post('/api/key',{key:name,down});
+  }
+  function momentary(button,name,isControl) {
+    const apply=down=>{button.classList.toggle('pressed',down); if(isControl)post('/api/control',{control:name,down}); else changeKey(name,down);};
+    button.addEventListener('pointerdown',e=>{if(e.button!==0)return; e.preventDefault();button.setPointerCapture(e.pointerId);apply(true);});
+    for(const event of ['pointerup','pointercancel','lostpointercapture']) button.addEventListener(event,()=>apply(false));
+  }
+  keyRows.flat().forEach(name=>{
+    const b=document.createElement('button');b.className='key'+(name.length>1?' fn':'');b.textContent=name==='SST'?'ON/OFF':name;
+    if(name==='SST') { b.classList.add('switch');b.innerHTML='<span>OFF</span><span>ON</span>';b.disabled=true;b.title='SST switch is OFF (left); single-step hardware comes in C29'; }
+    else if(name==='ST'||name==='RS') {b.dataset.control=name;momentary(b,name,true);}
+    else {b.dataset.key=name;momentary(b,name,false);}
+    keys.appendChild(b);
+  });
+  const heldKeyboard=new Map();
+  document.addEventListener('keydown',e=>{
+    if(e.repeat||e.ctrlKey||e.altKey||e.metaKey) return;
+    const name=e.key.toUpperCase();
+    if(!keyNames.includes(name)||heldKeyboard.has(e.code))return;
+    e.preventDefault();heldKeyboard.set(e.code,name);changeKey(name,true);
+  });
+  document.addEventListener('keyup',e=>{const name=heldKeyboard.get(e.code);if(name){heldKeyboard.delete(e.code);changeKey(name,false);}});
+  window.addEventListener('blur',()=>{for(const key of [...held])changeKey(key,false);for(const b of document.querySelectorAll('[data-control].pressed')){b.classList.remove('pressed');post('/api/control',{control:b.dataset.control,down:false});}heldKeyboard.clear();});
+  let tty=false, running=false, powered=true, awaitingReset=true, instrument=false, previous=null, brightness=Array.from({length:6},()=>Array(7).fill(0));
+  document.getElementById('power').onclick=()=>post('/api/control',{control:'POWER',down:!powered});
+  document.getElementById('tty').onclick=()=>{tty=!tty;post('/api/control',{control:'TTY',down:tty});renderTTY();};
+  function renderTTY(){const b=document.getElementById('tty');b.classList.toggle('on',tty);b.textContent=tty?'CLOSED · TTY':'OPEN · KEYPAD';b.setAttribute('aria-pressed',String(tty));}
+  document.getElementById('instrumentToggle').onclick=()=>{instrument=!instrument;document.getElementById('instrument').hidden=!instrument;};
+  document.getElementById('pause').onclick=()=>{if(!powered||awaitingReset)return;post('/api/control',{control:'PAUSE',down:running});running=!running;document.getElementById('pause').textContent=running?'PAUSE':'RESUME';};
+  document.getElementById('step').onclick=()=>{if(powered&&!awaitingReset)post('/api/control',{control:'STEP',down:true});};
+  const dwell=document.getElementById('dwell');
+  for(let d=0;d<6;d++){const c=document.createElement('div');c.className='dwell-cell';c.innerHTML='DIGIT '+(d+1)+'<div class="bar"><span></span></div>';dwell.appendChild(c);}
+  const bars=[...dwell.querySelectorAll('.bar span')];
+  function paint(s){
+    tty=s.tty;running=s.running;powered=s.powered;awaitingReset=s.awaitingReset;renderTTY();document.getElementById('pause').textContent=running?'PAUSE':'RESUME';
+    document.getElementById('pause').disabled=!powered||awaitingReset;document.getElementById('step').disabled=!powered||awaitingReset;
+    const powerButton=document.getElementById('power');powerButton.classList.toggle('on',powered);powerButton.setAttribute('aria-pressed',String(powered));powerButton.lastChild.textContent=powered?'POWER ON':'POWER OFF';
+    if(!powered || awaitingReset || (previous&&s.cycles<previous.cycles)) {brightness=Array.from({length:6},()=>Array(7).fill(0));previous=null;}
+    const elapsed=powered&&previous?Number(s.cycles-previous.cycles):0;
+    if(elapsed>0){
+      for(let d=0;d<6;d++)for(let seg=0;seg<7;seg++){
+        const delta=Number(s.dwell[d][seg]-previous.dwell[d][seg]);
+        const target=Math.max(0,Math.min(1,delta*6/elapsed));
+        brightness[d][seg]=brightness[d][seg]*.5+target*.5;
+      }
+    }
+    for(let d=0;d<6;d++)for(let seg=0;seg<7;seg++){
+      const on=(!powered||awaitingReset)?0:(!running&&instrument)?(d===s.active&&(s.segments&(1<<seg))?1:0):brightness[d][seg];
+      const intensity=Math.max(0,Math.min(1,on));
+      const r=Math.round(69+186*intensity), g=Math.round(33+41*intensity), b=Math.round(30+30*intensity);
+      ledSegments[d][seg].style.fill='rgb('+r+','+g+','+b+')';
+      ledSegments[d][seg].style.filter=intensity>.1?'drop-shadow(0 0 '+Math.round(7*intensity)+'px #f34b34)':'none';
+    }
+    for(let d=0;d<6;d++)bars[d].style.width=(100*Math.max(...brightness[d])).toFixed(1)+'%';
+    document.getElementById('cycles').textContent=s.cycles.toLocaleString();
+    document.getElementById('pc').textContent='$'+s.pc.toString(16).toUpperCase().padStart(4,'0');
+    document.getElementById('active').textContent=s.active<0?'none':String(s.active+1);
+    document.getElementById('segments').textContent=(s.segments&127).toString(2).padStart(7,'0');
+    const stat=document.getElementById('status');stat.classList.remove('error');stat.textContent=(!powered?'POWER OFF':awaitingReset?'PRESS RS TO START':running?'RUNNING':'PAUSED')+' · '+s.cycles.toLocaleString()+' CYCLES';
+    previous=powered&&!awaitingReset?s:null;
+  }
+  async function poll(){try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);paint(await r.json());}catch(e){const status=document.getElementById('status');status.textContent='DISCONNECTED: '+e.message;status.classList.add('error');}}
+  poll();setInterval(poll,100);
+})();
+</script>
+</body>
+</html>

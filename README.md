@@ -119,13 +119,75 @@ seven shared columns/segments; serial PA7 and PB0 remain independent.
 The 21 matrix keys can be held/released with `Panel.SetKey(name, pressed)`;
 ST maps to `PressStop`/`ReleaseStop` on NMI and RS uses
 `ResetCPU`/`ReleaseReset`.
+The physical key matrix is wired with descending PA columns (left to right
+PA6 through PA0), rather than ascending bit order. A complete 21-key test
+checks each asserted pin and its release; this corrects cases where pressing
+`1` registered as `5` and pressing `B` registered as `9`.
 
 The `Current` electrical digit/segment selection, `LastScan` per digit,
 and cycle-accumulating `Dwell` counters are observable without any GUI.
 The original ROM is verified to scan all six digits in keypad mode.
 This cut does not yet include clickable controls or an LED renderer.
 
+The ROM-backed reset-display regression samples full LED-on dwell windows
+before and after pressing RS. With the test fixture's **zero-filled RAM**,
+the original ROM produces `0000 00` and returns to the same display after
+a subsequent reset. Real cold-start RAM need not be zero-filled; this is
+not a claim that original KIM-1 hardware always displays `0000 00`. The per-cycle
+`LastScan` sample is not suitable as a stable rendered character because
+the 6530 pins are multiplexed; use the dwell observations instead.
+
 ## Virtual serial port for Minicom (c24)
+
+## Visual KIM-1 front panel (c27–c28)
+
+The front panel now has an interactive local browser view backed by the
+cycle-driven C26 hardware model. Put both original `6530-002.bin` and
+`6530-003.bin` in `../tests` (or set `KIM_ROM002` and `KIM_ROM003`), then:
+
+```
+make run-kim1-panel
+```
+
+The command starts the Go KIM-1 machine on `127.0.0.1:6580` and opens the
+display in your default browser. If automatic opening fails, visit
+`http://127.0.0.1:6580/` manually. Use `PANEL_ADDR=127.0.0.1:6581` for a
+different port, or `PANEL_OPEN=0` to disable automatic browser launch.
+
+The original ROM drives the six LED digits via the 6530 port lines. The
+display uses measured on-cycle dwell for LED persistence. The keypad follows
+the original six-row, four-column physical arrangement; its 21 matrix keys are
+actual row/column contacts, not calls into the monitor. The SST ON/OFF switch
+is shown but disabled until its electrical single-step behavior is modeled.
+Keyboard shortcuts
+for `0`–`9` and `A`–`F` are also available. ST asserts NMI and RS asserts
+reset. The TTY toggle is in a separate External Connections section because
+the original used an optional jumper or switch between application connector
+pins A-21 and A-V, not a switch built into the KIM-1 keypad. OPEN selects
+the keypad and LEDs; CLOSED selects the TTY. The panel starts in keypad mode.
+The POWER control sits above the LED bank. OFF stops the CPU and blanks
+the virtual display. ON constructs a fresh KIM-1 but **does not clock the CPU**:
+the LEDs remain dark until you press and release RS, just as when powering
+a physical board and then pressing reset. RS preserves RAM, while OFF/ON
+reinitializes all volatile main and 6530 RAM. The external TTY jumper
+position persists across power cycles. The default cold-start `device` RAM
+policy generates a stable, per-device synthetic power-up pattern with small
+changes between power cycles; this is not a measured physical SRAM model.
+Use `PANEL_RAM_MODE=zero` for deterministic zero-filled RAM, and optionally
+`PANEL_RAM_SEED=<integer>` to choose a different synthetic device pattern.
+The six LEDs are scaled to the compact keypad and maintain the 4+2 spacing.
+The SST slide switch is to the right of GO, ST and RS, with OFF at the left
+and ON at the right, but remains disabled until electrically modeled.
+Instrument mode shows bus
+cycle count, CPU PC, active digit, segment lines, and recent dwell.
+Pause stops the CPU clock; Step Cycle advances exactly one cycle. When paused,
+instrument mode displays the currently selected digit rather than the
+persistence-averaged display.
+
+This cut is a local HTML presentation with no third-party GUI dependency.
+It does not launch a native Wails window or expose the TTY connection over
+the panel page. Use the separate `run-kim1-pty` targets for Minicom.
+
 
 On Linux, start the emulator in the existing terminal:
 

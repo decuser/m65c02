@@ -37,8 +37,8 @@ func TestKIMFrontPanelKeyMatrixAndJumper(t *testing.T) {
 	}
 	selectPanelDecoder(k, 2)
 	k.Panel.UpdateInputs()
-	if got := k.RRIOT002.PinsA(); got != 0xdf {
-		t.Fatalf("row 2, GO pressed: PA=%02X, want DF", got)
+	if got := k.RRIOT002.PinsA(); got != 0xfd {
+		t.Fatalf("row 2, GO pressed: PA=%02X, want FD", got)
 	}
 	selectPanelDecoder(k, 0)
 	k.Panel.UpdateInputs()
@@ -66,6 +66,31 @@ func TestKIMFrontPanelKeyMatrixAndJumper(t *testing.T) {
 	}
 	if err := k.Panel.SetKey("RS", true); err == nil {
 		t.Fatal("reset must not be a matrix key")
+	}
+}
+
+func TestKIMFrontPanelAllKeysUseDescendingPAColumns(t *testing.T) {
+	k := panelFixture(t)
+	k.RRIOT002.RegisterDevice().Write(1, 0) // input columns
+	for row, names := range kimKeyNames {
+		selectPanelDecoder(k, row)
+		for col, name := range names {
+			if err := k.Panel.SetKey(name, true); err != nil {
+				t.Fatal(err)
+			}
+			k.Panel.UpdateInputs()
+			want := byte(0xff &^ (1 << uint(6-col)))
+			if got := k.RRIOT002.PinsA(); got != want {
+				t.Fatalf("key %s row %d col %d: PA=%02X want %02X", name, row, col, got, want)
+			}
+			if err := k.Panel.SetKey(name, false); err != nil {
+				t.Fatal(err)
+			}
+			k.Panel.UpdateInputs()
+			if got := k.RRIOT002.PinsA(); got != 0xff {
+				t.Fatalf("key %s release: PA=%02X", name, got)
+			}
+		}
 	}
 }
 
@@ -125,7 +150,7 @@ func TestKIMFrontPanelStopAndResetLines(t *testing.T) {
 	}
 	selectPanelDecoder(k, 2)
 	k.Panel.UpdateInputs()
-	if got := k.RRIOT002.PinsA(); got != 0xfd {
+	if got := k.RRIOT002.PinsA(); got != 0xdf {
 		t.Fatalf("physical key must remain held over reset, PA=%02X", got)
 	}
 }
@@ -161,4 +186,64 @@ func TestKIMFrontPanelOriginalROMScansDigits(t *testing.T) {
 	if active != 6 {
 		t.Fatalf("original ROM scanned %d of 6 display digits", active)
 	}
+}
+
+// The original monitor owns the LED outputs. Reset must restore its display
+// scan, not leave a stale front-panel value or require a software redraw.
+func TestKIMFrontPanelOriginalROMResetRestoresDisplay(t *testing.T) {
+	p002, p003 := os.Getenv("M65C02_KIM_ROM002"), os.Getenv("M65C02_KIM_ROM003")
+	if p002 == "" || p003 == "" {
+		t.Skip("supply both original KIM-1 ROMs")
+	}
+	k, err := NewKIM1FromFiles(p002, p003)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.TTYSelect = false
+	if err := k.StepInstruction(); err != nil {
+		t.Fatal(err)
+	}
+	k.ReleaseReset()
+	advance := func(cycles uint64) {
+		t.Helper()
+		for i := uint64(0); i < cycles; i++ {
+			if err := k.Clock(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	advance(100000)
+	measure := func() [6][7]uint64 {
+		t.Helper()
+		start := k.Panel.Dwell
+		advance(50000)
+		var result [6][7]uint64
+		for d := range result {
+			for bit := range result[d] {
+				result[d][bit] = k.Panel.Dwell[d][bit] - start[d][bit]
+			}
+		}
+		return result
+	}
+	before := measure()
+	k.ResetCPU()
+	if k.Panel.Current.Digit != -1 {
+		t.Fatal("reset should clear the active LED")
+	}
+	advance(8)
+	k.ReleaseReset()
+	advance(100000)
+	after := measure()
+	for d := range before {
+		for bit := range before[d] {
+			wantLit := bit < 6 // all six digits display zero: segments A-F on, G off
+			if (after[d][bit] > 0) != wantLit {
+				t.Fatalf("reset digit %d segment %d: lit=%t, want %t", d, bit, after[d][bit] > 0, wantLit)
+			}
+			if (before[d][bit] > 0) != (after[d][bit] > 0) {
+				t.Fatalf("reset changed lit segments at digit %d bit %d: before=%d after=%d", d, bit, before[d][bit], after[d][bit])
+			}
+		}
+	}
+	t.Logf("original ROM reset display dwell: %v", after)
 }

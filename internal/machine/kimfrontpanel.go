@@ -63,7 +63,9 @@ func (p *KIMFrontPanel) UpdateInputs() {
 	if row >= 0 && row <= 2 {
 		for col, pressed := range p.keys[row] {
 			if pressed {
-				input &^= 1 << uint(col)
+				// The physical KIM keyboard connects matrix columns in
+				// descending PA order: leftmost is PA6, rightmost PA0.
+				input &^= 1 << uint(6-col)
 			}
 		}
 	} else if row == 3 && p.TTY {
