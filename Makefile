@@ -35,6 +35,9 @@ validate: build vet test
 	@if [ -n "$${M65C02_CORPUS:-}" ]; then \
 		echo 'validate: selected Synertek corpus supplied; results above'; \
 	else echo 'validate: selected Synertek corpus unavailable (set M65C02_CORPUS)'; fi
+	@if [ -n "$${M65C02_DORMANN:-}" ]; then \
+		echo 'validate: Dormann documented 6502 binary supplied; result above'; \
+	else echo 'validate: Dormann functional binary unavailable (set M65C02_DORMANN)'; fi
 
 bench:
 	@if find . -name '*_test.go' -not -path './.git/*' -print -quit | grep -q .; then \
