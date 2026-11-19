@@ -185,6 +185,13 @@ browser panel, the cycle-based signal analyzer, and the observational Visible
 Computer view. A complete Apple IIe machine, native Wails interface, and
 reversible machine-wide execution are not provided.
 
+## Acknowledgments
+
+Development of m65c02 has been assisted by ChatGPT (OpenAI), and Grok,
+including design discussions, implementation, testing, and
+documentation. All changes are reviewed and integrated by
+the project author.
+
 ## License and provenance
 
 Project code is licensed under the
