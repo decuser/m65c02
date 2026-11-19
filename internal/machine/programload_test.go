@@ -3,13 +3,14 @@ package machine
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"m65c02/internal/cpu"
 )
 
 func TestKIMBASICPaperTape(t *testing.T) {
-	data, err := os.ReadFile("../../programs/kim1/kb9.kim")
+	data, err := os.ReadFile(filepath.Join(kimProgramsDir(t), "kb9.kim"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestKIMBASICPaperTape(t *testing.T) {
 func TestKIMBASICVersions(t *testing.T) {
 	var original []byte
 	for _, version := range []string{"kb9.kim", "kb9-v1.1.ptp", "kb9-v1.2.ptp", "kb9-v2.ptp"} {
-		data, err := os.ReadFile("../../programs/kim1/" + version)
+		data, err := os.ReadFile(filepath.Join(kimProgramsDir(t), version))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,7 +88,7 @@ func TestKIMBASICVersions(t *testing.T) {
 }
 
 func TestKIMTapeRejectsCorruption(t *testing.T) {
-	data, err := os.ReadFile("../../programs/kim1/kb9.kim")
+	data, err := os.ReadFile(filepath.Join(kimProgramsDir(t), "kb9.kim"))
 	if err != nil {
 		t.Fatal(err)
 	}

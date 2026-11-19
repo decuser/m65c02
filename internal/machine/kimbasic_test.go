@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"m65c02/internal/cpu"
@@ -43,7 +44,7 @@ func testKB9SerialBoot(t *testing.T, bitCycles uint64, file string, entry uint16
 	if err = k.EnableBASICRAM(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = k.LoadKIMTapeFile("../../programs/kim1/" + file); err != nil {
+	if _, err = k.LoadKIMTapeFile(filepath.Join(kimProgramsDir(t), file)); err != nil {
 		t.Fatal(err)
 	}
 	k.RAM.Write(0x00f1, 0)

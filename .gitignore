@@ -1,4 +1,12 @@
 # Build outputs
+/programs/
+/resources/
+/*.bin
+/*.rom
+/*.ptp
+/*.kim
+/*.zip
+/*.tar.gz
 /bin/
 /dist/
 /m65c02

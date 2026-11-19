@@ -4,7 +4,11 @@ PROJECT := m65c02
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 OUT ?= ..
 INCLUDE_GIT ?= 1
-TESTS_DIR ?= ../tests
+RESOURCES_DIR ?= ../m65c02-resources
+TESTS_DIR ?= $(RESOURCES_DIR)
+KIM_PROGRAMS_DIR ?= $(RESOURCES_DIR)/programs/kim1
+KIM_BASIC ?=
+export M65C02_KIM_PROGRAMS = $(abspath $(KIM_PROGRAMS_DIR))
 SYNERTEK_DIR ?= $(TESTS_DIR)/65x02/synertek65c02/v1
 DORMANN_DIR ?= $(TESTS_DIR)/6502_65C02_functional_tests/bin_files
 DORMANN_PROFILE_DIR ?= $(TESTS_DIR)/dormann-profile
@@ -19,7 +23,7 @@ PANEL_OPEN ?= 1
 PANEL_RAM_MODE ?= device
 PANEL_RAM_SEED ?= 1263095089
 
-.PHONY: all build test validate validate-full validate-kim1 run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace run-kim1-panel bench vet fmt baseline clean help
+.PHONY: all build test validate validate-full validate-kim1 run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace run-kim1-basic-pty run-kim1-panel bench vet fmt baseline clean help
 
 all: test
 
@@ -70,6 +74,30 @@ run-kim1 run-kim1-trace run-kim1-pty run-kim1-pty-trace:
 		$(if $(filter run-kim1-pty run-kim1-pty-trace,$@),-pty,) \
 		$(if $(filter run-kim1-trace run-kim1-pty-trace,$@),-trace-window,)
 
+# Load external KIM BASIC tape into 16 KiB expansion RAM, then enter via monitor.
+# KIM_BASIC=1|2|3 bypasses the interactive selector; default is patched V1.2.
+run-kim1-basic-pty:
+	@test -f '$(KIM_ROM002)' || { echo '$@: missing $(KIM_ROM002)'; exit 1; }
+	@test -f '$(KIM_ROM003)' || { echo '$@: missing $(KIM_ROM003)'; exit 1; }
+	@set -eu; choice='$(KIM_BASIC)'; \
+	 if [ -z "$$choice" ]; then \
+		printf 'KIM BASIC: 1) original V1.1  2) patched V1.2  3) patched V2\nChoice [2]: '; \
+		IFS= read -r choice || true; \
+	 fi; \
+	 case "$$choice" in \
+		''|2) tape='kb9-v1.2.ptp'; entry='0x3fb1' ;; \
+		1) tape='kb9-v1.1.ptp'; entry='0x4065' ;; \
+		3) tape='kb9-v2.ptp'; entry='0x2000' ;; \
+		*) echo "Invalid BASIC selection: $$choice" >&2; exit 1 ;; \
+	 esac; \
+	 path='$(abspath $(KIM_PROGRAMS_DIR))/'"$$tape"; \
+	 test -f "$$path" || { echo "Missing BASIC tape: $$path" >&2; exit 1; }; \
+	 bin=$$(mktemp); trap 'rm -f "$$bin"' EXIT; \
+	 $(GO) build -o "$$bin" ./cmd/m65c02-kim1; \
+	 "$$bin" -config '$(KIM_CONFIG)' \
+		-rom002 '$(abspath $(KIM_ROM002))' -rom003 '$(abspath $(KIM_ROM003))' \
+		-basic "$$path" -basic-entry "$$entry" -pty -launch-picocom -cycles '$(KIM_CYCLES)'
+
 # C28: KIM-1 panel with separate cold power and RS, plus RAM start policy.
 # Hosts a local panel page; xdg-open launches it in the default browser.
 run-kim1-panel:
@@ -82,7 +110,7 @@ run-kim1-panel:
 		-addr '$(PANEL_ADDR)' -ram-mode '$(PANEL_RAM_MODE)' -ram-seed '$(PANEL_RAM_SEED)' $(if $(filter 0,$(PANEL_OPEN)),-open=false,)
 
 # Full M1 external gate. All three Dormann fixtures are required.
-validate-full: build vet test
+validate-full: validate validate-kim1
 	@test -f '$(SYNERTEK_DIR)/00.json' -a -f '$(SYNERTEK_DIR)/ff.json' || { \
 		echo 'validate-full: missing Synertek JSON files in $(SYNERTEK_DIR)'; exit 1; }
 	@test -f '$(DORMANN_DIR)/6502_functional_test.bin' || { \
@@ -138,11 +166,12 @@ clean:
 help:
 	@printf '%s\n' 'build: compile Go packages' 'test: quick Go tests' \
 		'validate: build, vet, and available conformance tests' \
-		'validate-full: all Synertek and three Dormann tests (../tests)' \
-		'validate-kim1: map both original ROMs and execute initial monitor code (../tests)' \
+		'validate-full: all Synertek and three Dormann tests (RESOURCES_DIR)' \
+		'validate-kim1: map both original ROMs and execute initial monitor code (RESOURCES_DIR)' \
 		'run-kim1: interactive KIM-1 terminal (Ctrl-C/Ctrl-D exits)' \
 		'run-kim1-trace: interactive KIM-1 with cycle-stamped serial trace' \
 		'run-kim1-pty: expose KIM-1 to Minicom via /dev/pts/N' \
+		'run-kim1-basic-pty: select and preload external KB9 tape (default V1.2)' \
 		'run-kim1-pty-trace: PTY serial port plus separate trace window' \
 		'run-kim1-panel: open original KIM-1 keypad and LED panel in a browser' \
 		'bench: run Go benchmarks' 'baseline: nested project source archive' \

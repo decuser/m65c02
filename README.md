@@ -24,12 +24,18 @@ candidate note and earlier cut reviews for conformance evidence and limits.
 
 ## Local conformance corpuses
 
+For download sources, exact file placement, custom Dormann fixture builds,
+KIM-1 ROM acquisition, and checks, see
+[`docs/external-resources.md`](docs/external-resources.md).
+
 The two upstream repositories are kept **outside** this source tree, at the
 following locations on the development machine:
 
 ```
-~/forge/dev/tests/65x02/
-~/forge/dev/tests/6502_65C02_functional_tests/
+~/forge/dev/m65c02-resources/65x02/
+~/forge/dev/m65c02-resources/6502_65C02_functional_tests/
+~/forge/dev/m65c02-resources/dormann-profile/
+~/forge/dev/m65c02-resources/programs/kim1/
 ```
 
 From `~/forge/dev/m65c02`, run:
@@ -39,12 +45,12 @@ make validate             # quick local tests; external tests if configured
 make validate-full        # 2,560,000 Synertek vectors + Dormann functional
 ```
 
-`validate-full` uses the sibling `../tests` directory by default. It runs
+`validate-full` uses the sibling `../m65c02-resources` directory by default. It runs
 Synertek v1 in four groups of 640,000 vectors, then Dormann's published 6502
 functional binary. A missing required repository is a **failure**, not a skip.
-Override `TESTS_DIR=/other/directory` if needed. `validate-full` also requires
-`../tests/dormann-profile/65C02_profile.bin` and
-`../tests/dormann-profile/6502_interrupt_cmos.bin`, the independently rebuilt
+Override `RESOURCES_DIR=/other/directory` (or individual paths) if needed. `validate-full` also requires
+`../m65c02-resources/dormann-profile/65C02_profile.bin` and
+`../m65c02-resources/dormann-profile/6502_interrupt_cmos.bin`, the independently rebuilt
 65C02 and CMOS interrupt fixtures. Their setup is documented in
 `docs/dormann-conformance.md`. They must not be confused with the upstream
 Rockwell-enabled 65C02 binary.
@@ -53,13 +59,36 @@ The selected Synertek test set remains the default bus/cycle oracle and
 Dormann complements it with semantic and interrupt testing. Deliberate
 compatibility deviations must be documented rather than silently introduced.
 
+The KIM BASIC tape regression tests read external files from
+`$(RESOURCES_DIR)/programs/kim1` when invoked through Make. Set
+`KIM_PROGRAMS_DIR=/path/to/programs/kim1` to override this location, or set
+`M65C02_KIM_PROGRAMS` to an absolute directory when running `go test`
+directly. Missing or empty fixture directories cause those particular tests
+to skip; a populated fixture directory missing a required tape fails the test.
+
+Microsoft's historical 6502 BASIC assembly is retained solely as reference
+material in `third_party/microsoft-basic-m6502/`; see its provenance note and
+separate license. No BASIC tape images are distributed with this repository.
+
+To run Microsoft BASIC using the original monitor ROMs and an external tape:
+
+```sh
+make run-kim1-basic-pty  # choose 1/V1.1, 2/V1.2 (default), or 3/V2
+```
+
+The target automatically opens picocom in another terminal on its assigned
+`/dev/pts/N` device. Press Return in picocom for the KIM monitor's baud
+detection. The emulator enters the selected
+BASIC cold start through the original monitor. Noninteractive selection is
+available with `make KIM_BASIC=2 run-kim1-basic-pty`.
+
 The Visible Computer browser view and KIM-1 validation host now exist, but
 neither is part of the standalone CPU correctness contract. Full-system
 reversal and a complete Apple IIe host remain future work.
 
 ## KIM-1 ROM verification
 
-Place `6530-002.bin` and `6530-003.bin` directly in `~/forge/dev/tests`,
+Place `6530-002.bin` and `6530-003.bin` directly in `~/forge/dev/m65c02-resources`,
 alongside the other external test directories. From `~/forge/dev/m65c02`:
 
 ```
@@ -70,12 +99,12 @@ The target requires both files, verifies all 2,048 bytes through the emulated
 bus (including low/high ROM mirrors), performs the CPU reset-vector fetch, and
 executes the first 20 instructions of the original monitor. This is a ROM
 mapping and initial execution test, **not** an interactive KIM-1 boot session;
-the keypad/display and serial wiring are still pending. Use `TESTS_DIR` or
+the keypad/display and serial wiring are still pending. Use `RESOURCES_DIR` or
 `KIM_ROM002`/`KIM_ROM003` to override the default paths.
 
 ## KIM-1 serial pin trace (c21)
 
-With the ROMs in `../tests`, run:
+With the ROMs in `../m65c02-resources`, run:
 
 ```
 make run-kim1-trace
@@ -152,7 +181,7 @@ the 6530 pins are multiplexed; use the dwell observations instead.
 
 The front panel now has an interactive local browser view backed by the
 cycle-driven C26 hardware model. Put both original `6530-002.bin` and
-`6530-003.bin` in `../tests` (or set `KIM_ROM002` and `KIM_ROM003`), then:
+`6530-003.bin` in `../m65c02-resources` (or set `KIM_ROM002` and `KIM_ROM003`), then:
 
 ```
 make run-kim1-panel

@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -159,6 +160,15 @@ func startTraceWindow() (io.Writer, func(), error) {
 	return f, func() { f.Close(); os.Remove(f.Name()) }, nil
 }
 
+func startPicocom(path string) error {
+	cmd := exec.Command("x-terminal-emulator", "-e", "picocom", "--echo", "--emap", "delbs", "--omap", "delbs", "-b", "1200", path)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("launch picocom terminal: %w", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 func run() error {
 	config := flag.String("config", "machines/kim1.toml", "motherboard configuration")
 	rom002 := flag.String("rom002", "", "override 6530-002 ROM")
@@ -166,10 +176,13 @@ func run() error {
 	trace := flag.Bool("trace", false, "cycle-stamped serial transitions")
 	traceWindow := flag.Bool("trace-window", false, "open only a separate serial-trace terminal")
 	usePTY := flag.Bool("pty", false, "expose the serial port as a Linux /dev/pts device")
+	launchPicocom := flag.Bool("launch-picocom", false, "open a terminal running picocom on the new PTY")
 	live := flag.Bool("live", false, "read host keyboard until Ctrl-C or Ctrl-D")
 	cycles := flag.Uint64("cycles", 0, "maximum cycles; zero means unbounded with -live")
 	bitCycles := flag.Uint64("bit-cycles", 9091, "CPU cycles per serial bit")
 	initial := flag.String("input", "", "command text to send after monitor greeting")
+	basicTape := flag.String("basic", "", "KIM paper-tape BASIC image to preload into expansion RAM")
+	basicEntry := flag.Uint("basic-entry", 0, "BASIC cold-start address (hexadecimal with 0x prefix)")
 	flag.Parse()
 	board, err := machine.LoadKIM1Config(*config)
 	if err != nil {
@@ -184,12 +197,31 @@ func run() error {
 	if *bitCycles == 0 {
 		return fmt.Errorf("bit-cycles must be positive")
 	}
+	if *launchPicocom && !*usePTY {
+		return fmt.Errorf("-launch-picocom requires -pty")
+	}
 	if !*live && !*usePTY && *cycles == 0 {
 		return fmt.Errorf("specify -live or a finite -cycles limit")
 	}
 	k, err := machine.NewKIM1FromFiles(*rom002, *rom003)
 	if err != nil {
 		return err
+	}
+	if *basicTape != "" {
+		if *basicEntry > 0xffff || *basicEntry == 0 {
+			return fmt.Errorf("-basic requires a valid -basic-entry address")
+		}
+		if err := k.EnableBASICRAM(); err != nil {
+			return err
+		}
+		loaded, err := k.LoadKIMTapeFile(*basicTape)
+		if err != nil {
+			return fmt.Errorf("load BASIC tape %s: %w", *basicTape, err)
+		}
+		k.RAM.Write(0x00f1, 0)
+		k.RAM.Write(0x00f2, 0xff)
+		*initial = fmt.Sprintf("%04X ", *basicEntry) + *initial
+		fmt.Fprintf(os.Stderr, "KIM-1 BASIC: loaded %d bytes from %s; monitor GO at $%04X\n", loaded, *basicTape, *basicEntry)
 	}
 	k.TTYSelect = board.TTYSelect
 	s := k.ConnectSerial(*bitCycles)
@@ -223,7 +255,12 @@ func run() error {
 		defer port.Close()
 		defer close(stopPTY)
 		go pollPTY(port, input, connected, stopPTY)
-		fmt.Fprintf(os.Stderr, "KIM-1 serial device: %s\nConnect in another terminal:\n  minicom -D %s -b 1200 -8\nEnable local echo with Ctrl-A, E; press Return to start the monitor.\n", port.SlavePath, port.SlavePath)
+		fmt.Fprintf(os.Stderr, "KIM-1 serial device: %s\nConnect in another terminal:\n  picocom --echo --emap delbs --omap delbs -b 1200 %s\nUse CAPS LOCK for BASIC commands.\nTo exit picocom use CTL-a CTL-x\n", port.SlavePath, port.SlavePath)
+		if *launchPicocom {
+			if err := startPicocom(port.SlavePath); err != nil {
+				return err
+			}
+		}
 	}
 	if *live {
 		restore, err := enableRawTerminal()
@@ -243,6 +280,13 @@ func run() error {
 	var bootstrap bootstrapKey
 	readyCycle := uint64(3000000)
 	decodedCount := 0
+	var basicPrompt []byte
+	if *basicTape != "" {
+		basicPrompt = []byte(fmt.Sprintf("%04X ", *basicEntry))
+	}
+	var recentOutput []byte
+	basicGOQueued := false
+	var basicGOAt uint64
 	start := time.Now()
 	for *cycles == 0 || k.Bus.Cycles < *cycles {
 		select {
@@ -291,6 +335,10 @@ func run() error {
 			pending = append(pending, []byte(*initial)...)
 		}
 		if ready {
+			if basicGOAt != 0 && k.Bus.Cycles >= basicGOAt {
+				pending = append(pending, 'G')
+				basicGOAt = 0
+			}
 			select {
 			case b := <-input:
 				if *trace {
@@ -318,6 +366,20 @@ func run() error {
 		}
 		for _, b := range s.DrainDecoded() {
 			decodedCount++
+			if len(basicPrompt) > 0 && !basicGOQueued {
+				recentOutput = append(recentOutput, b)
+				if len(recentOutput) > 80 {
+					recentOutput = recentOutput[len(recentOutput)-80:]
+				}
+				// The monitor displays the address followed by the byte at
+				// that location. Send GO only after that reply arrives.
+				if i := bytes.LastIndex(recentOutput, basicPrompt); i >= 0 && len(recentOutput) >= i+len(basicPrompt)+3 {
+					// The monitor needs time to finish the address response
+					// before it can receive the GO command.
+					basicGOAt = k.Bus.Cycles + 30*s.BitCycles
+					basicGOQueued = true
+				}
+			}
 			if port != nil {
 				_, _ = port.Master.Write([]byte{b}) // disconnected slave has no receiver
 			} else if unicode.IsPrint(rune(b)) || b == '\r' || b == '\n' {

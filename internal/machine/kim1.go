@@ -13,6 +13,7 @@ import (
 type KIM1 struct {
 	*Machine
 	RAM                *RAM
+	Expansion          *RAM // optional 16 KiB BASIC RAM at $2000-$5FFF
 	RRIOT002, RRIOT003 *RRIOT
 	Serial             *KIMSerial
 	Panel              *KIMFrontPanel
@@ -83,6 +84,20 @@ func (k *KIM1) ResetCPU() {
 
 func (k *KIM1) ReleaseReset() { k.Bus.Reset = false; k.CPU.SetLines(false, false, false) }
 
+// EnableBASICRAM attaches 16 KiB of expansion RAM without changing the
+// original KIM-1 memory decoding outside $2000-$5FFF.
+func (k *KIM1) EnableBASICRAM() error {
+	if k.Expansion != nil {
+		return nil
+	}
+	ram, err := NewRAM(0x4000)
+	if err != nil {
+		return err
+	}
+	k.Expansion = ram
+	return nil
+}
+
 // ST is a separate active-low front-panel switch wired to the CPU NMI line.
 func (k *KIM1) PressStop()   { k.Bus.NMI = true }
 func (k *KIM1) ReleaseStop() { k.Bus.NMI = false }
@@ -127,6 +142,12 @@ func (b *kim1Decoder) updateJumper() {
 
 func (b *kim1Decoder) Read(addr uint16) byte {
 	b.updateJumper()
+	if addr >= 0x2000 && addr < 0x6000 && b.jumpers != nil && b.jumpers.Expansion != nil {
+		return b.jumpers.Expansion.Read(addr - 0x2000)
+	}
+	if addr >= 0x6000 && addr < 0xe000 && b.jumpers != nil && b.jumpers.Expansion != nil {
+		return 0xff // unpopulated expansion address space
+	}
 	switch a := addr & 0x1fff; {
 	case a < 0x0400:
 		return b.ram.Read(a)
@@ -148,6 +169,13 @@ func (b *kim1Decoder) Read(addr uint16) byte {
 }
 
 func (b *kim1Decoder) Write(addr uint16, value byte) {
+	if addr >= 0x2000 && addr < 0x6000 && b.jumpers != nil && b.jumpers.Expansion != nil {
+		b.jumpers.Expansion.Write(addr-0x2000, value)
+		return
+	}
+	if addr >= 0x6000 && addr < 0xe000 && b.jumpers != nil && b.jumpers.Expansion != nil {
+		return
+	}
 	switch a := addr & 0x1fff; {
 	case a < 0x0400:
 		b.ram.Write(a, value)
