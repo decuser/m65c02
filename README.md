@@ -33,6 +33,39 @@ repository**. Download them separately into a sibling directory, by default
 the expected file layout, and custom test fixture instructions. Override the
 default with `make RESOURCES_DIR=/absolute/path ...`.
 
+## Quick start: KIM-1 front panel
+
+On Linux, install Go and a web browser, then clone this repository:
+
+```sh
+git clone https://github.com/decuser/m65c02.git
+cd m65c02
+```
+
+Download the two original 1 KiB KIM-1 monitor ROMs from
+[Zimmers.NET's KIM-1 archive](https://www.zimmers.net/anonftp/pub/cbm/src/kim-1/index.html):
+
+- [6530-002.bin](https://www.zimmers.net/anonftp/pub/cbm/src/kim-1/6530-002.bin)
+- [6530-003.bin](https://www.zimmers.net/anonftp/pub/cbm/src/kim-1/6530-003.bin)
+
+```sh
+mkdir -p ../m65c02-resources
+curl -fL -o ../m65c02-resources/6530-002.bin https://www.zimmers.net/anonftp/pub/cbm/src/kim-1/6530-002.bin
+curl -fL -o ../m65c02-resources/6530-003.bin https://www.zimmers.net/anonftp/pub/cbm/src/kim-1/6530-003.bin
+wc -c ../m65c02-resources/6530-00{2,3}.bin  # each should be 1024 bytes
+make run-kim1-panel
+```
+
+The front panel opens in your browser, normally at
+`http://127.0.0.1:6580/`. If it does not open automatically, visit that
+address yourself. Use **POWER ON**, then press **RS** to reset/start the
+original monitor. No external test corpora or BASIC tapes are needed for
+this first run. The ROMs are third-party archival files and remain outside
+the Git repository.
+
+For serial-terminal operation, install `picocom` and use the commands below.
+For Microsoft BASIC, also download the optional paper tapes described below.
+
 ## Build and test
 
 ```sh
